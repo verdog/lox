@@ -10,6 +10,7 @@ pub fn build(b: *std.Build) void {
         .target = target,
         .optimize = optimize,
     });
+    exe.emit_docs = .emit;
 
     b.installArtifact(exe);
 
