@@ -108,8 +108,12 @@ pub const Lexer = struct {
             '\n' => self.current_line += 1,
 
             else => {
-                result.had_error = true;
-                ux.printUserErrorWhere(self.current_line, self.currentLexeme(), "Unexpected character");
+                if (std.ascii.isAlphabetic(c) or c == '_') {
+                    try self.scanIdentifier(result);
+                } else {
+                    result.had_error = true;
+                    ux.printUserErrorWhere(self.current_line, self.currentLexeme(), "Unexpected character");
+                }
             },
         }
     }
@@ -144,6 +148,15 @@ pub const Lexer = struct {
         }
 
         try self.addToken(.number);
+    }
+
+    fn scanIdentifier(self: *Lexer, result: *ux.Result) !void {
+        // XXX: not handling error cases?
+        _ = result;
+
+        while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') _ = self.advance();
+
+        try self.addToken(.identifier);
     }
 
     fn advance(self: *Lexer) u8 {
@@ -262,6 +275,30 @@ test "scan test 4" {
         text,
         &[_]TokenType{ .lparen, .lparen, .number, .number, .number, .rparen, .rparen },
         &[_][]const u8{ "(", "(", "1", "1.2", "11.22", ")", ")" },
+    );
+}
+
+test "scan test 5" {
+    const text =
+        \\foo == bar
+    ;
+
+    try testLexer(
+        text,
+        &[_]TokenType{ .identifier, .eql_eql, .identifier },
+        &[_][]const u8{ "foo", "==", "bar" },
+    );
+}
+
+test "scan test 6" {
+    const text =
+        \\foo_bar == zig_zag_100
+    ;
+
+    try testLexer(
+        text,
+        &[_]TokenType{ .identifier, .eql_eql, .identifier },
+        &[_][]const u8{ "foo_bar", "==", "zig_zag_100" },
     );
 }
 
