@@ -109,7 +109,7 @@ pub const Lexer = struct {
 
             else => {
                 if (std.ascii.isAlphabetic(c) or c == '_') {
-                    try self.scanIdentifier(result);
+                    try self.scanWord(result);
                 } else {
                     result.had_error = true;
                     ux.printUserErrorWhere(self.current_line, self.currentLexeme(), "Unexpected character");
@@ -150,13 +150,18 @@ pub const Lexer = struct {
         try self.addToken(.number);
     }
 
-    fn scanIdentifier(self: *Lexer, result: *ux.Result) !void {
+    /// scan an identifier or a language keyword
+    fn scanWord(self: *Lexer, result: *ux.Result) !void {
         // XXX: not handling error cases?
         _ = result;
 
         while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') _ = self.advance();
 
-        try self.addToken(.identifier);
+        if (std.meta.stringToEnum(TokenType, self.currentLexeme())) |t| {
+            try self.addToken(t);
+        } else {
+            try self.addToken(.identifier);
+        }
     }
 
     fn advance(self: *Lexer) u8 {
@@ -299,6 +304,19 @@ test "scan test 6" {
         text,
         &[_]TokenType{ .identifier, .eql_eql, .identifier },
         &[_][]const u8{ "foo_bar", "==", "zig_zag_100" },
+    );
+}
+
+test "scan test 7" {
+    const text =
+        \\if (1 < 2) foo = bar * 12.23 else return
+        \\while (true) class super this = false nil
+    ;
+
+    try testLexer(
+        text,
+        &[_]TokenType{ .@"if", .lparen, .number, .less, .number, .rparen, .identifier, .eql, .identifier, .star, .number, .@"else", .@"return", .@"while", .lparen, .true, .rparen, .class, .super, .this, .eql, .false, .nil },
+        &[_][]const u8{ "if", "(", "1", "<", "2", ")", "foo", "=", "bar", "*", "12.23", "else", "return", "while", "(", "true", ")", "class", "super", "this", "=", "false", "nil" },
     );
 }
 
