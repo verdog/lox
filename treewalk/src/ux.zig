@@ -1,6 +1,11 @@
 pub const in = std.io.getStdIn().reader();
-pub const out = std.io.getStdOut().writer();
-pub const err = std.io.getStdErr().writer();
+
+const stdout_unbuffered = std.io.getStdOut().writer();
+var stdout_buffered = std.io.bufferedWriter(stdout_unbuffered);
+pub const out = stdout_buffered.writer();
+
+const stderr_unbuffered = std.io.getStdErr();
+pub const err = stderr_unbuffered.writer();
 
 pub const Result = struct {
     had_error: bool = false,
