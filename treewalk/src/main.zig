@@ -45,6 +45,7 @@ fn runPrompt() !void {
 
     while (true) {
         try ux.out.print("> ", .{});
+        try ux.stdout_buffer.flush();
         const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
             _ = run(line) catch |e|

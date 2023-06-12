@@ -100,6 +100,8 @@ pub const Lexer = struct {
 
             '"' => try self.scanString(result),
 
+            '0'...'9' => try self.scanNumber(result),
+
             // ignore whitespace
             ' ', '\r', '\t' => {},
 
@@ -128,6 +130,22 @@ pub const Lexer = struct {
         try self.addToken(.string);
     }
 
+    fn scanNumber(self: *Lexer, result: *ux.Result) !void {
+        // XXX: not handling error cases?
+        _ = result;
+
+        while (std.ascii.isDigit(self.peek())) _ = self.advance();
+
+        if (self.peek() == '.' and std.ascii.isDigit(self.peekNext())) {
+            // consume the '.'
+            _ = self.advance();
+
+            while (std.ascii.isDigit(self.peek())) _ = self.advance();
+        }
+
+        try self.addToken(.number);
+    }
+
     fn advance(self: *Lexer) u8 {
         const c = self.peek();
         self.current_lexeme_char += 1;
@@ -144,6 +162,11 @@ pub const Lexer = struct {
     fn peek(self: Lexer) u8 {
         if (self.atEnd()) return '\x00';
         return self.source[@intCast(usize, self.current_lexeme_char)];
+    }
+
+    fn peekNext(self: Lexer) u8 {
+        if (self.current_lexeme_char + 1 >= self.source.len) return '\x00';
+        return self.source[@intCast(usize, self.current_lexeme_char + 1)];
     }
 
     fn atEnd(self: Lexer) bool {
@@ -227,6 +250,18 @@ test "scan test 3" {
         text,
         &[_]TokenType{ .string, .bang_eql, .string, .lparen, .lparen, .rparen, .rparen },
         &[_][]const u8{ "\"hello\"", "!=", "\"world\"", "(", "(", ")", ")" },
+    );
+}
+
+test "scan test 4" {
+    const text =
+        \\((1 1.2 11.22))
+    ;
+
+    try testLexer(
+        text,
+        &[_]TokenType{ .lparen, .lparen, .number, .number, .number, .rparen, .rparen },
+        &[_][]const u8{ "(", "(", "1", "1.2", "11.22", ")", ")" },
     );
 }
 
