@@ -1,5 +1,5 @@
 // zig fmt: off
-const TokenType = enum {
+pub const TokenType = enum {
     // single character tokens
     lparen, rparen, lbrace, rbrace,
     comma, dot, minus, plus, semicolon, slash, star,
@@ -20,10 +20,9 @@ const TokenType = enum {
 };
 // zig fmt: on
 
-const Token = struct {
+pub const Token = struct {
     typ: TokenType,
     lexeme: []const u8,
-    // literal: Literal,
     line: i32,
 };
 
