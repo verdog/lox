@@ -1,13 +1,15 @@
-// TODO examine and polish the api for all this stuff
-
 const Expr = union(enum) {
     binary: Binary,
     unary: Unary,
     grouping: Grouping,
     literal: Literal,
 
-    pub fn accept(expr: Expr, visitor: anytype, pool: ExprPool) []u8 {
-        return visitor.visit(expr, pool);
+    pub fn acceptVisitor(expr: Expr, pool: ExprPool, alctr: std.mem.Allocator, visitor: anytype) VisitorResult(@TypeOf(visitor)) {
+        return visitor.visit(expr, pool, alctr);
+    }
+
+    fn VisitorResult(comptime visitor: type) type {
+        return @typeInfo(@TypeOf(@field(visitor, "visit"))).Fn.return_type.?;
     }
 };
 
@@ -96,35 +98,60 @@ const Literal = struct {
     value: lex.Token,
 };
 
-pub fn printAst(expr: Expr, pool: ExprPool) []u8 {
+pub fn printAst(expr: Expr, pool: ExprPool, alctr: std.mem.Allocator) []u8 {
     const visitor = struct {
-        pub fn visit(self: @This(), exp: Expr, pl: ExprPool) []u8 {
+        pub fn visit(self: @This(), exp: Expr, pl: ExprPool, alct: std.mem.Allocator) []u8 {
             switch (exp) {
                 .binary => |bin| {
-                    const left = pl.buf.items[bin.left].accept(self, pl);
-                    defer pl.alctr.free(left);
-                    const right = pl.buf.items[bin.right].accept(self, pl);
-                    defer pl.alctr.free(right);
-                    return std.fmt.allocPrint(pl.alctr, "({s} {s} {s})", .{ bin.operator.lexeme, left, right }) catch @panic("OOM");
+                    const left = pl.buf.items[bin.left].acceptVisitor(pl, alct, self);
+                    defer alct.free(left);
+                    const right = pl.buf.items[bin.right].acceptVisitor(pl, alct, self);
+                    defer alct.free(right);
+                    return std.fmt.allocPrint(alct, "({s} {s} {s})", .{ bin.operator.lexeme, left, right }) catch @panic("OOM");
                 },
                 .unary => |un| {
-                    const right = pl.buf.items[un.right].accept(self, pl);
-                    defer pl.alctr.free(right);
-                    return std.fmt.allocPrint(pl.alctr, "({s} {s})", .{ un.operator.lexeme, right }) catch @panic("OOM");
+                    const right = pl.buf.items[un.right].acceptVisitor(pl, alct, self);
+                    defer alct.free(right);
+                    return std.fmt.allocPrint(alct, "({s} {s})", .{ un.operator.lexeme, right }) catch @panic("OOM");
                 },
                 .grouping => |grp| {
-                    const expression = pl.buf.items[grp.expression].accept(self, pl);
-                    defer pl.alctr.free(expression);
-                    return std.fmt.allocPrint(pl.alctr, "(group {s})", .{expression}) catch @panic("OOM");
+                    const expression = pl.buf.items[grp.expression].acceptVisitor(pl, alct, self);
+                    defer alct.free(expression);
+                    return std.fmt.allocPrint(alct, "(group {s})", .{expression}) catch @panic("OOM");
                 },
                 .literal => |lit| {
-                    return std.fmt.allocPrint(pl.alctr, "{s}", .{lit.value.lexeme}) catch @panic("OOM");
+                    return std.fmt.allocPrint(alct, "{s}", .{lit.value.lexeme}) catch @panic("OOM");
                 },
             }
         }
     }{};
 
-    return expr.accept(visitor, pool);
+    return expr.acceptVisitor(pool, alctr, visitor);
+}
+
+pub fn countNodesInTree(expr: Expr, pool: ExprPool) usize {
+    const visitor = struct {
+        pub fn visit(self: @This(), exp: Expr, pl: ExprPool, alct: std.mem.Allocator) usize {
+            switch (exp) {
+                .binary => |bin| {
+                    const left = pl.buf.items[bin.left].acceptVisitor(pl, alct, self);
+                    const right = pl.buf.items[bin.right].acceptVisitor(pl, alct, self);
+                    return 1 + left + right;
+                },
+                .unary => |un| {
+                    return 1 + pl.buf.items[un.right].acceptVisitor(pl, alct, self);
+                },
+                .grouping => |grp| {
+                    return 1 + pl.buf.items[grp.expression].acceptVisitor(pl, alct, self);
+                },
+                .literal => {
+                    return 1;
+                },
+            }
+        }
+    }{};
+
+    return expr.acceptVisitor(pool, undefined, visitor);
 }
 
 test "printAst" {
@@ -138,10 +165,24 @@ test "printAst" {
     const u = pool.addUnary(.{ .typ = .minus, .lexeme = "-", .line = 0 }, f2.index);
     const b = pool.addBinary(u.index, .{ .typ = .star, .lexeme = "*", .line = 0 }, g.index);
 
-    const string = printAst(b.ptr.*, pool);
+    const string = printAst(b.ptr.*, pool, alctr);
     defer alctr.free(string);
 
-    std.debug.print("{s}\n", .{string});
+    try std.testing.expectEqualStrings("(* (- 123) (group 45.67))", string);
+}
+
+test "countNodesInTree" {
+    const alctr = std.testing.allocator;
+    var pool = ExprPool.init(alctr);
+    defer pool.deinit();
+
+    const f = pool.addLiteral(.number, "45.67", 0);
+    const g = pool.addGrouping(f.index);
+    const f2 = pool.addLiteral(.number, "123", 0);
+    const u = pool.addUnary(.{ .typ = .minus, .lexeme = "-", .line = 0 }, f2.index);
+    const b = pool.addBinary(u.index, .{ .typ = .star, .lexeme = "*", .line = 0 }, g.index);
+
+    try std.testing.expectEqual(@as(usize, 5), countNodesInTree(b.ptr.*, pool));
 }
 
 const std = @import("std");
