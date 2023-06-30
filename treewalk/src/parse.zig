@@ -344,11 +344,11 @@ test "countNodesInTree" {
     try std.testing.expectEqual(@as(usize, 5), countNodesInTree(pool.buf.items[b.index], pool));
 }
 
-test "parse" {
+fn testParser(
+    comptime text: []const u8,
+    comptime expected_print: []const u8,
+) !void {
     const alctr = std.testing.allocator;
-    const text =
-        \\23 <= 24
-    ;
 
     var lexer = lex.Lexer.init(text, alctr);
     defer lexer.deinit();
@@ -364,7 +364,51 @@ test "parse" {
     const string = printAst(parser.pool.buf.items[expr.index], parser.pool, alctr);
     defer alctr.free(string);
 
-    try std.testing.expectEqualStrings("(<= 23 24)", string);
+    try std.testing.expectEqualStrings(expected_print, string);
+}
+
+test "parse test 1" {
+    const text =
+        \\"hello" != "world"
+        \\
+    ;
+    const expected_tree =
+        \\(!= "hello" "world")
+    ;
+    try testParser(text, expected_tree);
+}
+
+test "parse test 2" {
+    const text =
+        \\"hello" != "world" != "goodbye"
+        \\
+    ;
+    const expected_tree =
+        \\(!= (!= "hello" "world") "goodbye")
+    ;
+    try testParser(text, expected_tree);
+}
+
+test "parse test 3" {
+    const text =
+        \\"hello" != "world" != ( "goodbye" )
+        \\
+    ;
+    const expected_tree =
+        \\(!= (!= "hello" "world") (group "goodbye"))
+    ;
+    try testParser(text, expected_tree);
+}
+
+test "parse test 4" {
+    const text =
+        \\"hello" != "world" != ( "goodbye" + 6 )
+        \\
+    ;
+    const expected_tree =
+        \\(!= (!= "hello" "world") (group (+ "goodbye" 6)))
+    ;
+    try testParser(text, expected_tree);
 }
 
 const std = @import("std");
