@@ -35,13 +35,9 @@ const ExprPool = struct {
         self.buf.deinit();
     }
 
-    pub fn addLiteral(pool: *ExprPool, typ: lex.TokenType, lexeme: []const u8, line: i32) Handle {
+    pub fn addLiteral(pool: *ExprPool, token: lex.Token) Handle {
         pool.buf.append(undefined) catch @panic("OOM");
-        pool.buf.items[pool.buf.items.len - 1] = .{ .literal = .{ .value = .{
-            .typ = typ,
-            .lexeme = lexeme,
-            .line = line,
-        } } };
+        pool.buf.items[pool.buf.items.len - 1] = .{ .literal = .{ .value = token } };
         return pool.lastHandle();
     }
 
@@ -190,12 +186,12 @@ const Parser = struct {
     }
 
     fn primary(p: *Parser) ExprPool.Handle {
-        if (p.match(.true)) return p.pool.addLiteral(.true, "true", 0);
-        if (p.match(.false)) return p.pool.addLiteral(.false, "false", 0);
-        if (p.match(.nil)) return p.pool.addLiteral(.nil, "nil", 0);
-
-        if (p.match(.number) or p.match(.string))
-            return p.pool.addLiteral(.number, p.previous().lexeme, 0);
+        if (p.match(.true) or
+            p.match(.false) or
+            p.match(.nil) or
+            p.match(.number) or
+            p.match(.string))
+            return p.pool.addLiteral(p.previous());
 
         if (p.match(.lparen)) {
             const expr = p.expression();
@@ -312,10 +308,10 @@ test "printAst" {
         .{ .typ = .star, .lexeme = "*", .line = 0 },
         pool.addUnary(
             .{ .typ = .minus, .lexeme = "-", .line = 0 },
-            pool.addLiteral(.number, "123", 0).index,
+            pool.addLiteral(.{ .typ = .number, .lexeme = "123", .line = 0 }).index,
         ).index,
         pool.addGrouping(
-            pool.addLiteral(.number, "45.67", 0).index,
+            pool.addLiteral(.{ .typ = .number, .lexeme = "45.67", .line = 0 }).index,
         ).index,
     );
 
@@ -334,10 +330,10 @@ test "countNodesInTree" {
         .{ .typ = .star, .lexeme = "*", .line = 0 },
         pool.addUnary(
             .{ .typ = .minus, .lexeme = "-", .line = 0 },
-            pool.addLiteral(.number, "123", 0).index,
+            pool.addLiteral(.{ .typ = .number, .lexeme = "123", .line = 0 }).index,
         ).index,
         pool.addGrouping(
-            pool.addLiteral(.number, "45.67", 0).index,
+            pool.addLiteral(.{ .typ = .number, .lexeme = "45.67", .line = 0 }).index,
         ).index,
     );
 
@@ -370,7 +366,6 @@ fn testParser(
 test "parse test 1" {
     const text =
         \\"hello" != "world"
-        \\
     ;
     const expected_tree =
         \\(!= "hello" "world")
@@ -381,7 +376,6 @@ test "parse test 1" {
 test "parse test 2" {
     const text =
         \\"hello" != "world" != "goodbye"
-        \\
     ;
     const expected_tree =
         \\(!= (!= "hello" "world") "goodbye")
@@ -392,7 +386,6 @@ test "parse test 2" {
 test "parse test 3" {
     const text =
         \\"hello" != "world" != ( "goodbye" )
-        \\
     ;
     const expected_tree =
         \\(!= (!= "hello" "world") (group "goodbye"))
@@ -403,10 +396,19 @@ test "parse test 3" {
 test "parse test 4" {
     const text =
         \\"hello" != "world" != ( "goodbye" + 6 )
-        \\
     ;
     const expected_tree =
         \\(!= (!= "hello" "world") (group (+ "goodbye" 6)))
+    ;
+    try testParser(text, expected_tree);
+}
+
+test "parse test 5" {
+    const text =
+        \\ (true + false) == "hello world" - 2.2
+    ;
+    const expected_tree =
+        \\(== (group (+ true false)) (- "hello world" 2.2))
     ;
     try testParser(text, expected_tree);
 }
