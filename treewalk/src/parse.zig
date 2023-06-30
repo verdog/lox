@@ -52,7 +52,7 @@ const ExprPool = struct {
         return pool.lastHandle();
     }
 
-    pub fn addBinary(pool: *ExprPool, left: Index, operator: lex.Token, right: Index) Handle {
+    pub fn addBinary(pool: *ExprPool, operator: lex.Token, left: Index, right: Index) Handle {
         pool.buf.append(undefined) catch @panic("OOM");
         pool.buf.items[pool.buf.items.len - 1] = .{ .binary = .{
             .left = left,
@@ -159,11 +159,16 @@ test "printAst" {
     var pool = ExprPool.init(alctr);
     defer pool.deinit();
 
-    const f = pool.addLiteral(.number, "45.67", 0);
-    const g = pool.addGrouping(f.index);
-    const f2 = pool.addLiteral(.number, "123", 0);
-    const u = pool.addUnary(.{ .typ = .minus, .lexeme = "-", .line = 0 }, f2.index);
-    const b = pool.addBinary(u.index, .{ .typ = .star, .lexeme = "*", .line = 0 }, g.index);
+    const b = pool.addBinary(
+        .{ .typ = .star, .lexeme = "*", .line = 0 },
+        pool.addUnary(
+            .{ .typ = .minus, .lexeme = "-", .line = 0 },
+            pool.addLiteral(.number, "123", 0).index,
+        ).index,
+        pool.addGrouping(
+            pool.addLiteral(.number, "45.67", 0).index,
+        ).index,
+    );
 
     const string = printAst(b.ptr.*, pool, alctr);
     defer alctr.free(string);
@@ -176,11 +181,16 @@ test "countNodesInTree" {
     var pool = ExprPool.init(alctr);
     defer pool.deinit();
 
-    const f = pool.addLiteral(.number, "45.67", 0);
-    const g = pool.addGrouping(f.index);
-    const f2 = pool.addLiteral(.number, "123", 0);
-    const u = pool.addUnary(.{ .typ = .minus, .lexeme = "-", .line = 0 }, f2.index);
-    const b = pool.addBinary(u.index, .{ .typ = .star, .lexeme = "*", .line = 0 }, g.index);
+    const b = pool.addBinary(
+        .{ .typ = .star, .lexeme = "*", .line = 0 },
+        pool.addUnary(
+            .{ .typ = .minus, .lexeme = "-", .line = 0 },
+            pool.addLiteral(.number, "123", 0).index,
+        ).index,
+        pool.addGrouping(
+            pool.addLiteral(.number, "45.67", 0).index,
+        ).index,
+    );
 
     try std.testing.expectEqual(@as(usize, 5), countNodesInTree(b.ptr.*, pool));
 }
