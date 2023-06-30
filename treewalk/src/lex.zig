@@ -319,6 +319,18 @@ test "scan test 7" {
     );
 }
 
+test "scan test 8" {
+    const text =
+        \\foo_bar == 23
+    ;
+
+    try testLexer(
+        text,
+        &[_]TokenType{ .identifier, .eql_eql, .number },
+        &[_][]const u8{ "foo_bar", "==", "23" },
+    );
+}
+
 const std = @import("std");
 const ux = @import("ux.zig");
 
