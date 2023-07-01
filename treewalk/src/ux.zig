@@ -16,11 +16,19 @@ pub fn printUserError(line: i32, message: []const u8) void {
 }
 
 pub fn printUserErrorWhere(line: i32, where: []const u8, message: []const u8) void {
-    err.print("[line {}] Error: {s}: {s}\n", .{ line, where, message }) catch |e| {
+    err.print("[line {}] Error: at {s}: {s}\n", .{ line, where, message }) catch |e| {
         log.err("couldn't print to stderr ({})", .{e});
     };
 }
 
+pub fn tokenError(token: lex.Token, message: []const u8) void {
+    switch (token.typ) {
+        .eof => printUserErrorWhere(token.line, "eof", message),
+        else => printUserErrorWhere(token.line, token.lexeme, message),
+    }
+}
+
 const std = @import("std");
+const lex = @import("lex.zig");
 
 const log = std.log.scoped(.ux);

@@ -94,11 +94,15 @@ const Literal = struct {
     value: lex.Token,
 };
 
-const Parser = struct {
+pub const Parser = struct {
     tokens: []lex.Token,
     current_token: usize,
     pool: ExprPool,
     alctr: std.mem.Allocator,
+
+    const Error = struct {
+        // TODO
+    };
 
     pub fn init(tokens: []lex.Token, alctr: std.mem.Allocator) Parser {
         return .{
@@ -130,6 +134,14 @@ const Parser = struct {
     // high precedence
     //
     // Everything is left associative except unary, which is right associative.
+
+    pub fn parse(p: *Parser) ExprPool.Handle {
+        return p.expression();
+        // try
+        // return p.expression();
+        // catch parsererror
+        // return null
+    }
 
     fn expression(p: *Parser) ExprPool.Handle {
         return p.equality();
@@ -199,8 +211,22 @@ const Parser = struct {
             return p.pool.addGrouping(expr.index);
         }
 
-        // throw error?
+        // throw error peek() "Expected expression."
         unreachable;
+    }
+
+    fn synchronize(p: *Parser) void {
+        // advance to the start of the next statement
+        p.advance();
+        while (!p.isAtEnd()) {
+            if (p.previous().typ == .semicolon) return;
+
+            switch (p.peek().typ) {
+                .class, .@"for", .fun, .@"if", .print, .@"return", .@"var", .@"while" => return,
+            }
+
+            p.advance();
+        }
     }
 
     // parsing operations
@@ -236,10 +262,15 @@ const Parser = struct {
     }
 
     fn consume(p: *Parser, typ: lex.TokenType, message: []const u8) lex.Token {
-        _ = message;
         if (p.check(typ)) return p.advance();
-        // error
-        unreachable;
+        _ = p.emitError(p.peek(), message);
+        return p.peek(); // not sure if this is right?
+    }
+
+    fn emitError(p: Parser, token: lex.Token, message: []const u8) Error {
+        _ = p;
+        ux.tokenError(token, message);
+        return Error{};
     }
 };
 
@@ -355,7 +386,7 @@ fn testParser(
     var parser = Parser.init(lexer.tokens.items, alctr);
     defer parser.deinit();
 
-    const expr = parser.expression();
+    const expr = parser.parse();
 
     const string = printAst(parser.pool.buf.items[expr.index], parser.pool, alctr);
     defer alctr.free(string);
@@ -415,3 +446,6 @@ test "parse test 5" {
 
 const std = @import("std");
 const lex = @import("lex.zig");
+const ux = @import("ux.zig");
+
+const log = std.log.scoped(.parse);

@@ -62,7 +62,18 @@ fn run(bytes: []const u8) !ux.Result {
     var lexer = lex.Lexer.init(bytes, heap);
     defer lexer.deinit();
 
-    return try lexer.scanTokens();
+    const lex_result = try lexer.scanTokens();
+    if (lex_result.had_error) return lex_result;
+
+    var parser = prs.Parser.init(lexer.tokens.items, heap);
+    defer parser.deinit();
+
+    const expr = parser.parse();
+    const string = prs.printAst(parser.pool.buf.items[expr.index], parser.pool, heap);
+    defer heap.free(string);
+
+    log.debug("{s}", .{string});
+    return .{};
 }
 
 test "run all tests" {
@@ -72,6 +83,7 @@ test "run all tests" {
 const std = @import("std");
 const ux = @import("ux.zig");
 const lex = @import("lex.zig");
+const prs = @import("parse.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var heap = gpa.allocator();
