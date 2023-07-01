@@ -34,6 +34,13 @@ pub const Lexer = struct {
     current_lexeme_char: i32,
     current_line: i32,
 
+    last_error: ?LexError = null,
+
+    const LexError = error{
+        UnexpectedCharacter,
+        UnterminatedString,
+    };
+
     pub fn init(source: []const u8, alctr: std.mem.Allocator) Lexer {
         return .{
             .source = source,
@@ -49,57 +56,57 @@ pub const Lexer = struct {
         self.tokens.deinit();
     }
 
-    pub fn scanTokens(self: *Lexer) !ux.Result {
-        var result = ux.Result{};
-
+    pub fn scanTokens(self: *Lexer) LexError![]Token {
         while (!self.atEnd()) {
             self.current_lexeme_start = self.current_lexeme_char;
-            try self.scanToken(&result);
+            self.scanToken();
         }
 
-        try self.tokens.append(Token{
+        self.tokens.append(Token{
             .typ = .eof,
             .lexeme = "",
             .line = self.current_line,
-        });
+        }) catch @panic("OOM");
 
-        return result;
+        if (self.last_error) |e| return e;
+
+        return self.tokens.toOwnedSlice() catch @panic("OOM");
     }
 
-    fn scanToken(self: *Lexer, result: *ux.Result) !void {
+    fn scanToken(self: *Lexer) void {
         const c = self.advance();
 
         switch (c) {
             // single character
-            '(' => try self.addToken(.lparen),
-            ')' => try self.addToken(.rparen),
-            '{' => try self.addToken(.lbrace),
-            '}' => try self.addToken(.rbrace),
-            ',' => try self.addToken(.comma),
-            '.' => try self.addToken(.dot),
-            '-' => try self.addToken(.minus),
-            '+' => try self.addToken(.plus),
-            ';' => try self.addToken(.semicolon),
-            '*' => try self.addToken(.star),
+            '(' => self.addToken(.lparen),
+            ')' => self.addToken(.rparen),
+            '{' => self.addToken(.lbrace),
+            '}' => self.addToken(.rbrace),
+            ',' => self.addToken(.comma),
+            '.' => self.addToken(.dot),
+            '-' => self.addToken(.minus),
+            '+' => self.addToken(.plus),
+            ';' => self.addToken(.semicolon),
+            '*' => self.addToken(.star),
 
             // one or two characters
-            '!' => try self.addToken(if (self.match('=')) .bang_eql else .bang),
-            '=' => try self.addToken(if (self.match('=')) .eql_eql else .eql),
-            '<' => try self.addToken(if (self.match('=')) .less_eql else .less),
-            '>' => try self.addToken(if (self.match('=')) .greater_eql else .greater),
+            '!' => self.addToken(if (self.match('=')) .bang_eql else .bang),
+            '=' => self.addToken(if (self.match('=')) .eql_eql else .eql),
+            '<' => self.addToken(if (self.match('=')) .less_eql else .less),
+            '>' => self.addToken(if (self.match('=')) .greater_eql else .greater),
 
             '/' => {
                 if (self.match('/')) {
                     // found a comment
                     while (self.peek() != '\n' and !self.atEnd()) _ = self.advance();
                 } else {
-                    try self.addToken(.slash);
+                    self.addToken(.slash);
                 }
             },
 
-            '"' => try self.scanString(result),
+            '"' => self.scanString(),
 
-            '0'...'9' => try self.scanNumber(result),
+            '0'...'9' => self.scanNumber(),
 
             // ignore whitespace
             ' ', '\r', '\t' => {},
@@ -108,35 +115,31 @@ pub const Lexer = struct {
 
             else => {
                 if (std.ascii.isAlphabetic(c) or c == '_') {
-                    try self.scanWord(result);
+                    self.scanWord();
                 } else {
-                    result.had_error = true;
-                    ux.printUserErrorWhere(self.current_line, self.currentLexeme(), "Unexpected character");
+                    ux.printUserError(self.current_line, self.currentLexeme(), "Unexpected character");
+                    self.last_error = LexError.UnexpectedCharacter;
                 }
             },
         }
     }
 
-    fn scanString(self: *Lexer, result: *ux.Result) !void {
+    fn scanString(self: *Lexer) void {
         while (self.peek() != '"' and !self.atEnd()) {
             if (self.peek() == '\n') self.current_line += 1;
             _ = self.advance();
         }
 
-        if (self.atEnd()) {
-            result.had_error = true;
-            ux.printUserErrorWhere(self.current_line, self.currentLexeme(), "Unterminated string");
+        if (!self.atEnd()) {
+            _ = self.advance(); // the closing "
+            self.addToken(.string);
+        } else {
+            ux.printUserError(self.current_line, self.currentLexeme(), "Unterminated string");
+            self.last_error = LexError.UnterminatedString;
         }
-
-        _ = self.advance(); // the closing "
-
-        try self.addToken(.string);
     }
 
-    fn scanNumber(self: *Lexer, result: *ux.Result) !void {
-        // XXX: not handling error cases?
-        _ = result;
-
+    fn scanNumber(self: *Lexer) void {
         while (std.ascii.isDigit(self.peek())) _ = self.advance();
 
         if (self.peek() == '.' and std.ascii.isDigit(self.peekNext())) {
@@ -146,20 +149,17 @@ pub const Lexer = struct {
             while (std.ascii.isDigit(self.peek())) _ = self.advance();
         }
 
-        try self.addToken(.number);
+        self.addToken(.number);
     }
 
     /// scan an identifier or a language keyword
-    fn scanWord(self: *Lexer, result: *ux.Result) !void {
-        // XXX: not handling error cases?
-        _ = result;
-
+    fn scanWord(self: *Lexer) void {
         while (std.ascii.isAlphanumeric(self.peek()) or self.peek() == '_') _ = self.advance();
 
         if (std.meta.stringToEnum(TokenType, self.currentLexeme())) |t| {
-            try self.addToken(t);
+            self.addToken(t);
         } else {
-            try self.addToken(.identifier);
+            self.addToken(.identifier);
         }
     }
 
@@ -190,12 +190,12 @@ pub const Lexer = struct {
         return self.current_lexeme_char >= self.source.len;
     }
 
-    fn addToken(self: *Lexer, typ: TokenType) !void {
-        try self.tokens.append(Token{
+    fn addToken(self: *Lexer, typ: TokenType) void {
+        self.tokens.append(Token{
             .typ = typ,
             .lexeme = self.currentLexeme(),
             .line = self.current_line,
-        });
+        }) catch @panic("OOM");
         const new_token = &self.tokens.items[self.tokens.items.len - 1];
         log.debug("addToken {s}: {s}", .{ @tagName(new_token.typ), new_token.lexeme });
     }
@@ -215,8 +215,8 @@ fn testLexer(
     var lexer = Lexer.init(text, alctr);
     defer lexer.deinit();
 
-    const result = try lexer.scanTokens();
-    try std.testing.expectEqual(false, result.had_error);
+    const tokens = try lexer.scanTokens();
+    defer alctr.free(tokens);
 
     if (expected_tokens.len != expected_lexemes.len) {
         @compileError("Mismatched lexer test lengths");
@@ -224,12 +224,12 @@ fn testLexer(
 
     for (expected_tokens, 0..) |token, i| {
         errdefer std.debug.print("i was {}\n", .{i});
-        try std.testing.expectEqual(@as(TokenType, token), lexer.tokens.items[i].typ);
+        try std.testing.expectEqual(@as(TokenType, token), tokens[i].typ);
     }
 
     for (expected_lexemes, 0..) |lexeme, i| {
         errdefer std.debug.print("i was {}\n", .{i});
-        try std.testing.expectEqualStrings(lexeme, lexer.tokens.items[i].lexeme);
+        try std.testing.expectEqualStrings(lexeme, tokens[i].lexeme);
     }
 }
 

@@ -11,20 +11,16 @@ pub const Result = struct {
     had_error: bool = false,
 };
 
-pub fn printUserError(line: i32, message: []const u8) void {
-    printUserErrorWhere(line, "", message);
-}
-
-pub fn printUserErrorWhere(line: i32, where: []const u8, message: []const u8) void {
-    err.print("[line {}] Error: at {s}: {s}\n", .{ line, where, message }) catch |e| {
+pub fn printUserError(line: i32, text_to_blame: []const u8, message: []const u8) void {
+    err.print("[line {}] Error: {s}: {s}\n", .{ line, text_to_blame, message }) catch |e| {
         log.err("couldn't print to stderr ({})", .{e});
     };
 }
 
-pub fn tokenError(token: lex.Token, message: []const u8) void {
+pub fn printUserErrorAtToken(token: lex.Token, message: []const u8) void {
     switch (token.typ) {
-        .eof => printUserErrorWhere(token.line, "eof", message),
-        else => printUserErrorWhere(token.line, token.lexeme, message),
+        .eof => printUserError(token.line, "eof", message),
+        else => printUserError(token.line, token.lexeme, message),
     }
 }
 

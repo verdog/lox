@@ -62,10 +62,10 @@ fn run(bytes: []const u8) !ux.Result {
     var lexer = lex.Lexer.init(bytes, heap);
     defer lexer.deinit();
 
-    const lex_result = try lexer.scanTokens();
-    if (lex_result.had_error) return lex_result;
+    const tokens = try lexer.scanTokens();
+    defer heap.free(tokens);
 
-    var parser = prs.Parser.init(lexer.tokens.items, heap);
+    var parser = prs.Parser.init(tokens, heap);
     defer parser.deinit();
 
     const expr = parser.parse();

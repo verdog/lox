@@ -269,7 +269,7 @@ pub const Parser = struct {
 
     fn emitError(p: Parser, token: lex.Token, message: []const u8) Error {
         _ = p;
-        ux.tokenError(token, message);
+        ux.printUserErrorAtToken(token, message);
         return Error{};
     }
 };
@@ -380,10 +380,10 @@ fn testParser(
     var lexer = lex.Lexer.init(text, alctr);
     defer lexer.deinit();
 
-    const result = try lexer.scanTokens();
-    try std.testing.expectEqual(false, result.had_error);
+    const tokens = try lexer.scanTokens();
+    defer alctr.free(tokens);
 
-    var parser = Parser.init(lexer.tokens.items, alctr);
+    var parser = Parser.init(tokens, alctr);
     defer parser.deinit();
 
     const expr = parser.parse();
