@@ -100,8 +100,9 @@ pub const Parser = struct {
     pool: ExprPool,
     alctr: std.mem.Allocator,
 
-    const Error = struct {
-        // TODO
+    last_error: ?Error = null,
+    const Error = error{
+        UnexpectedToken,
     };
 
     pub fn init(tokens: []lex.Token, alctr: std.mem.Allocator) Parser {
@@ -135,69 +136,65 @@ pub const Parser = struct {
     //
     // Everything is left associative except unary, which is right associative.
 
-    pub fn parse(p: *Parser) ExprPool.Handle {
-        return p.expression();
-        // try
-        // return p.expression();
-        // catch parsererror
-        // return null
+    pub fn parse(p: *Parser) Error!ExprPool.Handle {
+        return try p.expression();
     }
 
-    fn expression(p: *Parser) ExprPool.Handle {
-        return p.equality();
+    fn expression(p: *Parser) Error!ExprPool.Handle {
+        return try p.equality();
     }
 
-    fn equality(p: *Parser) ExprPool.Handle {
-        var expr = p.comparison();
+    fn equality(p: *Parser) Error!ExprPool.Handle {
+        var expr = try p.comparison();
         while (p.match(.bang_eql) or p.match(.eql_eql)) {
             const operator = p.previous();
-            const right = p.comparison();
+            const right = try p.comparison();
             expr = p.pool.addBinary(operator, expr.index, right.index);
         }
         return expr;
     }
 
-    fn comparison(p: *Parser) ExprPool.Handle {
-        var expr = p.term();
+    fn comparison(p: *Parser) Error!ExprPool.Handle {
+        var expr = try p.term();
         while (p.match(.greater) or p.match(.greater_eql) or p.match(.less) or p.match(.less_eql)) {
             const operator = p.previous();
-            const right = p.term();
+            const right = try p.term();
             expr = p.pool.addBinary(operator, expr.index, right.index);
         }
         return expr;
     }
 
-    fn term(p: *Parser) ExprPool.Handle {
-        var expr = p.factor();
+    fn term(p: *Parser) Error!ExprPool.Handle {
+        var expr = try p.factor();
         while (p.match(.minus) or p.match(.plus)) {
             const operator = p.previous();
-            const right = p.factor();
+            const right = try p.factor();
             expr = p.pool.addBinary(operator, expr.index, right.index);
         }
         return expr;
     }
 
-    fn factor(p: *Parser) ExprPool.Handle {
-        var expr = p.unary();
+    fn factor(p: *Parser) Error!ExprPool.Handle {
+        var expr = try p.unary();
         while (p.match(.slash) or p.match(.star)) {
             const operator = p.previous();
-            const right = p.unary();
+            const right = try p.unary();
             expr = p.pool.addBinary(operator, expr.index, right.index);
         }
         return expr;
     }
 
-    fn unary(p: *Parser) ExprPool.Handle {
+    fn unary(p: *Parser) Error!ExprPool.Handle {
         if (p.match(.bang) or p.match(.minus)) {
             const operator = p.previous();
-            const right = p.unary();
+            const right = try p.unary();
             return p.pool.addUnary(operator, right.index);
         } else {
-            return p.primary();
+            return try p.primary();
         }
     }
 
-    fn primary(p: *Parser) ExprPool.Handle {
+    fn primary(p: *Parser) Error!ExprPool.Handle {
         if (p.match(.true) or
             p.match(.false) or
             p.match(.nil) or
@@ -206,13 +203,13 @@ pub const Parser = struct {
             return p.pool.addLiteral(p.previous());
 
         if (p.match(.lparen)) {
-            const expr = p.expression();
-            _ = p.consume(.rparen, "Expected ')' after expression.");
+            const expr = try p.expression();
+            _ = try p.consume(.rparen, "Expected ')' after expression");
             return p.pool.addGrouping(expr.index);
         }
 
-        // throw error peek() "Expected expression."
-        unreachable;
+        Parser.printUserErrorAtToken(p.peek(), "Expected expression");
+        return Error.UnexpectedToken;
     }
 
     fn synchronize(p: *Parser) void {
@@ -261,16 +258,17 @@ pub const Parser = struct {
         return p.tokens[p.current_token - 1];
     }
 
-    fn consume(p: *Parser, typ: lex.TokenType, message: []const u8) lex.Token {
+    fn consume(p: *Parser, typ: lex.TokenType, comptime message: []const u8) Error!lex.Token {
         if (p.check(typ)) return p.advance();
-        _ = p.emitError(p.peek(), message);
-        return p.peek(); // not sure if this is right?
+        Parser.printUserErrorAtToken(p.peek(), message);
+        return Error.UnexpectedToken;
     }
 
-    fn emitError(p: Parser, token: lex.Token, message: []const u8) Error {
-        _ = p;
-        ux.printUserErrorAtToken(token, message);
-        return Error{};
+    fn printUserErrorAtToken(token: lex.Token, comptime message: []const u8) void {
+        switch (token.typ) {
+            .eof => ux.printUserError(token.line, "eof", message),
+            else => ux.printUserError(token.line, token.lexeme, message),
+        }
     }
 };
 
@@ -386,7 +384,7 @@ fn testParser(
     var parser = Parser.init(tokens, alctr);
     defer parser.deinit();
 
-    const expr = parser.parse();
+    const expr = try parser.parse();
 
     const string = printAst(parser.pool.buf.items[expr.index], parser.pool, alctr);
     defer alctr.free(string);

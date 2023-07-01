@@ -11,17 +11,13 @@ pub const Result = struct {
     had_error: bool = false,
 };
 
-pub fn printUserError(line: i32, text_to_blame: []const u8, message: []const u8) void {
-    err.print("[line {}] Error: {s}: {s}\n", .{ line, text_to_blame, message }) catch |e| {
+pub fn printUserError(line: i32, text_to_blame: []const u8, comptime message: []const u8) void {
+    if (message[message.len - 1] == '.')
+        @compileError("Don't end error messages with '.'.");
+
+    err.print("[line {}] Error: {s}: \"{s}\".\n", .{ line, message, text_to_blame }) catch |e| {
         log.err("couldn't print to stderr ({})", .{e});
     };
-}
-
-pub fn printUserErrorAtToken(token: lex.Token, message: []const u8) void {
-    switch (token.typ) {
-        .eof => printUserError(token.line, "eof", message),
-        else => printUserError(token.line, token.lexeme, message),
-    }
 }
 
 const std = @import("std");

@@ -68,7 +68,7 @@ fn run(bytes: []const u8) !ux.Result {
     var parser = prs.Parser.init(tokens, heap);
     defer parser.deinit();
 
-    const expr = parser.parse();
+    const expr = try parser.parse();
     const string = prs.printAst(parser.pool.buf.items[expr.index], parser.pool, heap);
     defer heap.free(string);
 
