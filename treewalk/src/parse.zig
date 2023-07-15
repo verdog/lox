@@ -74,6 +74,7 @@ pub const ExprPool = struct {
         };
     }
 
+    // TODO name this something better
     pub fn fromIndex(pool: ExprPool, index: Index) Expr {
         std.debug.assert(index < pool.buf.items.len);
         return pool.buf.items[index];

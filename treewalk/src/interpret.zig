@@ -25,7 +25,20 @@ const Interpreter = struct {
     pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Value {
         switch (expr) {
             .binary => |_| {},
-            .unary => |_| {},
+            .unary => |u| {
+                var value = pl.fromIndex(u.right).acceptVisitor(pl, alctr, intr);
+                switch (u.operator.typ) {
+                    .minus => {
+                        std.debug.assert(std.meta.activeTag(value) == .number);
+                        return .{ .number = -value.number };
+                    },
+                    .bang => {
+                        return .{ .booln = !isTruthy(value) };
+                    },
+
+                    else => unreachable,
+                }
+            },
             .grouping => |g| return pl.fromIndex(g.expression).acceptVisitor(pl, alctr, intr),
             .literal => |l| return interpretTokenValue(l.value, alctr),
         }
@@ -50,6 +63,15 @@ const Interpreter = struct {
             .identifier => return .{ .nil = {} }, // TODO
 
             else => unreachable,
+        };
+    }
+
+    fn isTruthy(v: Value) bool {
+        // false and nil are falsey, everything else is truthy
+        return switch (v) {
+            .nil => false,
+            .booln => |b| b,
+            else => true,
         };
     }
 };
@@ -85,7 +107,7 @@ fn testInterpreter(
     }
 }
 
-test "interpret test 1: parse literals" {
+test "interpret: parse literals" {
     try testInterpreter("true", .{ .booln = true });
     try testInterpreter("false", .{ .booln = false });
     try testInterpreter("1", .{ .number = 1.0 });
@@ -102,7 +124,7 @@ test "interpret test 1: parse literals" {
     }
 }
 
-test "interpret test 2: parse simple literal groupings" {
+test "interpret: simple literal groupings" {
     try testInterpreter("(true)", .{ .booln = true });
     try testInterpreter("(((((true)))))", .{ .booln = true });
     try testInterpreter("(false)", .{ .booln = false });
@@ -123,6 +145,17 @@ test "interpret test 2: parse simple literal groupings" {
         try testInterpreter("(\"fee fie foh fum\")", result);
         try testInterpreter("(((((\"fee fie foh fum\")))))", result);
     }
+}
+
+test "interpret: unary operations" {
+    try testInterpreter("!true", .{ .booln = false });
+    try testInterpreter("!false", .{ .booln = true });
+    try testInterpreter("!!true", .{ .booln = true });
+    try testInterpreter("!!false", .{ .booln = false });
+
+    try testInterpreter("-1", .{ .number = -1.0 });
+    try testInterpreter("-1.1", .{ .number = -1.1 });
+    try testInterpreter("-3.1415", .{ .number = -3.1415 });
 }
 
 const std = @import("std");
