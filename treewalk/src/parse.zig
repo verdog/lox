@@ -73,6 +73,11 @@ pub const ExprPool = struct {
             .index = @intCast(pool.buf.items.len - 1),
         };
     }
+
+    pub fn fromIndex(pool: ExprPool, index: Index) Expr {
+        std.debug.assert(index < pool.buf.items.len);
+        return pool.buf.items[index];
+    }
 };
 
 const Binary = struct {
@@ -277,19 +282,19 @@ pub fn printAst(expr: Expr, pool: ExprPool, alctr: std.mem.Allocator) []u8 {
         pub fn visit(self: @This(), exp: Expr, pl: ExprPool, alct: std.mem.Allocator) []u8 {
             switch (exp) {
                 .binary => |bin| {
-                    const left = pl.buf.items[bin.left].acceptVisitor(pl, alct, self);
+                    const left = pl.fromIndex(bin.left).acceptVisitor(pl, alct, self);
                     defer alct.free(left);
-                    const right = pl.buf.items[bin.right].acceptVisitor(pl, alct, self);
+                    const right = pl.fromIndex(bin.right).acceptVisitor(pl, alct, self);
                     defer alct.free(right);
                     return std.fmt.allocPrint(alct, "({s} {s} {s})", .{ bin.operator.lexeme, left, right }) catch @panic("OOM");
                 },
                 .unary => |un| {
-                    const right = pl.buf.items[un.right].acceptVisitor(pl, alct, self);
+                    const right = pl.fromIndex(un.right).acceptVisitor(pl, alct, self);
                     defer alct.free(right);
                     return std.fmt.allocPrint(alct, "({s} {s})", .{ un.operator.lexeme, right }) catch @panic("OOM");
                 },
                 .grouping => |grp| {
-                    const expression = pl.buf.items[grp.expression].acceptVisitor(pl, alct, self);
+                    const expression = pl.fromIndex(grp.expression).acceptVisitor(pl, alct, self);
                     defer alct.free(expression);
                     return std.fmt.allocPrint(alct, "(group {s})", .{expression}) catch @panic("OOM");
                 },
@@ -308,15 +313,15 @@ pub fn countNodesInTree(expr: Expr, pool: ExprPool) usize {
         pub fn visit(self: @This(), exp: Expr, pl: ExprPool, alct: std.mem.Allocator) usize {
             switch (exp) {
                 .binary => |bin| {
-                    const left = pl.buf.items[bin.left].acceptVisitor(pl, alct, self);
-                    const right = pl.buf.items[bin.right].acceptVisitor(pl, alct, self);
+                    const left = pl.fromIndex(bin.left).acceptVisitor(pl, alct, self);
+                    const right = pl.fromIndex(bin.right).acceptVisitor(pl, alct, self);
                     return 1 + left + right;
                 },
                 .unary => |un| {
-                    return 1 + pl.buf.items[un.right].acceptVisitor(pl, alct, self);
+                    return 1 + pl.fromIndex(un.right).acceptVisitor(pl, alct, self);
                 },
                 .grouping => |grp| {
-                    return 1 + pl.buf.items[grp.expression].acceptVisitor(pl, alct, self);
+                    return 1 + pl.fromIndex(grp.expression).acceptVisitor(pl, alct, self);
                 },
                 .literal => {
                     return 1;
@@ -344,7 +349,7 @@ test "printAst" {
         ).index,
     );
 
-    const string = printAst(pool.buf.items[b.index], pool, alctr);
+    const string = printAst(pool.fromIndex(b.index), pool, alctr);
     defer alctr.free(string);
 
     try std.testing.expectEqualStrings("(* (- 123) (group 45.67))", string);
@@ -366,7 +371,7 @@ test "countNodesInTree" {
         ).index,
     );
 
-    try std.testing.expectEqual(@as(usize, 5), countNodesInTree(pool.buf.items[b.index], pool));
+    try std.testing.expectEqual(@as(usize, 5), countNodesInTree(pool.fromIndex(b.index), pool));
 }
 
 fn testParser(
@@ -386,7 +391,7 @@ fn testParser(
 
     const expr = try parser.parse();
 
-    const string = printAst(parser.pool.buf.items[expr.index], parser.pool, alctr);
+    const string = printAst(parser.pool.fromIndex(expr.index), parser.pool, alctr);
     defer alctr.free(string);
 
     try std.testing.expectEqualStrings(expected_print, string);

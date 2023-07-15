@@ -23,16 +23,11 @@ const Interpreter = struct {
 
     /// implements visitor interface required by parse.Expr.acceptVisitor
     pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Value {
-        _ = pl;
-        _ = intr;
-
         switch (expr) {
             .binary => |_| {},
             .unary => |_| {},
-            .grouping => |_| {},
-            .literal => |l| {
-                return interpretTokenValue(l.value, alctr);
-            },
+            .grouping => |g| return pl.fromIndex(g.expression).acceptVisitor(pl, alctr, intr),
+            .literal => |l| return interpretTokenValue(l.value, alctr),
         }
 
         unreachable;
@@ -79,7 +74,7 @@ fn testInterpreter(
     var interpreter = Interpreter.init();
     defer interpreter.deinit();
 
-    const interpreted_result = parser.pool.buf.items[expr.index].acceptVisitor(parser.pool, alctr, interpreter);
+    const interpreted_result = parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, alctr, interpreter);
     defer interpreted_result.deinit();
 
     switch (result) {
@@ -104,6 +99,29 @@ test "interpret test 1: parse literals" {
         defer result.deinit();
 
         try testInterpreter("\"fee fie foh fum\"", result);
+    }
+}
+
+test "interpret test 2: parse simple literal groupings" {
+    try testInterpreter("(true)", .{ .booln = true });
+    try testInterpreter("(((((true)))))", .{ .booln = true });
+    try testInterpreter("(false)", .{ .booln = false });
+    try testInterpreter("(((((false)))))", .{ .booln = false });
+    try testInterpreter("(1)", .{ .number = 1.0 });
+    try testInterpreter("(((((1)))))", .{ .number = 1.0 });
+    try testInterpreter("(1.1)", .{ .number = 1.1 });
+    try testInterpreter("(((((1.1)))))", .{ .number = 1.1 });
+    try testInterpreter("(3.1415)", .{ .number = 3.1415 });
+    try testInterpreter("(((((3.1415)))))", .{ .number = 3.1415 });
+
+    {
+        const alctr = std.testing.allocator;
+        // note the removed quotes
+        const result = Interpreter.stringValueFromSlice("fee fie foh fum", alctr);
+        defer result.deinit();
+
+        try testInterpreter("(\"fee fie foh fum\")", result);
+        try testInterpreter("(((((\"fee fie foh fum\")))))", result);
     }
 }
 
