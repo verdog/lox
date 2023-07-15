@@ -178,12 +178,12 @@ pub const Lexer = struct {
 
     fn peek(self: Lexer) u8 {
         if (self.atEnd()) return '\x00';
-        return self.source[@intCast(usize, self.current_lexeme_char)];
+        return self.source[@intCast(self.current_lexeme_char)];
     }
 
     fn peekNext(self: Lexer) u8 {
         if (self.current_lexeme_char + 1 >= self.source.len) return '\x00';
-        return self.source[@intCast(usize, self.current_lexeme_char + 1)];
+        return self.source[@intCast(self.current_lexeme_char + 1)];
     }
 
     fn atEnd(self: Lexer) bool {
@@ -201,7 +201,7 @@ pub const Lexer = struct {
     }
 
     fn currentLexeme(self: Lexer) []const u8 {
-        return self.source[@intCast(usize, self.current_lexeme_start)..@intCast(usize, self.current_lexeme_char)];
+        return self.source[@intCast(self.current_lexeme_start)..@intCast(self.current_lexeme_char)];
     }
 };
 

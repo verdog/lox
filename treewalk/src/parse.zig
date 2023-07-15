@@ -1,4 +1,4 @@
-const Expr = union(enum) {
+pub const Expr = union(enum) {
     binary: Binary,
     unary: Unary,
     grouping: Grouping,
@@ -15,7 +15,7 @@ const Expr = union(enum) {
     }
 };
 
-const ExprPool = struct {
+pub const ExprPool = struct {
     const Index = u16;
     const Handle = struct {
         index: Index,
@@ -70,7 +70,7 @@ const ExprPool = struct {
 
     fn lastHandle(pool: ExprPool) Handle {
         return .{
-            .index = @intCast(Index, pool.buf.items.len - 1),
+            .index = @intCast(pool.buf.items.len - 1),
         };
     }
 };

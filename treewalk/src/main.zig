@@ -77,13 +77,15 @@ fn run(bytes: []const u8) !ux.Result {
 }
 
 test "run all tests" {
-    std.testing.refAllDecls(@This());
+    std.testing.refAllDeclsRecursive(@This());
+    _ = @import("interpret.zig");
 }
 
 const std = @import("std");
 const ux = @import("ux.zig");
 const lex = @import("lex.zig");
 const prs = @import("parse.zig");
+const interp = @import("interpret.zig");
 
 var gpa = std.heap.GeneralPurposeAllocator(.{}){};
 var heap = gpa.allocator();
