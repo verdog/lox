@@ -24,7 +24,77 @@ const Interpreter = struct {
     /// implements visitor interface required by parse.Expr.acceptVisitor
     pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Value {
         switch (expr) {
-            .binary => |_| {},
+            .binary => |b| {
+                var left = pl.fromIndex(b.left).acceptVisitor(pl, alctr, intr);
+                defer left.deinit();
+                var right = pl.fromIndex(b.right).acceptVisitor(pl, alctr, intr);
+                defer right.deinit();
+
+                // for now.
+                std.debug.assert(std.meta.activeTag(left) == std.meta.activeTag(right));
+
+                switch (b.operator.typ) {
+                    .plus => {
+                        // relying on the above assert that the active tags are equal
+                        switch (left) {
+                            .number => return .{ .number = left.number + right.number },
+                            .string => {
+                                var result: Value = .{ .string = left.string.clone() catch @panic("OOM") };
+                                result.string.appendSlice(right.string.items) catch @panic("OOM");
+                                return result;
+                            },
+                            else => unreachable,
+                        }
+                    },
+                    .minus => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .number = left.number - right.number };
+                    },
+                    .star => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .number = left.number * right.number };
+                    },
+                    .slash => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .number = left.number / right.number };
+                    },
+                    .greater => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = left.number > right.number };
+                    },
+                    .greater_eql => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = left.number >= right.number };
+                    },
+                    .less => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = left.number < right.number };
+                    },
+                    .less_eql => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = left.number <= right.number };
+                    },
+                    .eql_eql => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = std.meta.eql(left, right) };
+                    },
+                    .bang_eql => {
+                        std.debug.assert(std.meta.activeTag(left) == .number);
+                        std.debug.assert(std.meta.activeTag(right) == .number);
+                        return .{ .booln = !std.meta.eql(left, right) };
+                    },
+
+                    else => unreachable,
+                }
+            },
             .unary => |u| {
                 var value = pl.fromIndex(u.right).acceptVisitor(pl, alctr, intr);
                 switch (u.operator.typ) {
@@ -156,6 +226,30 @@ test "interpret: unary operations" {
     try testInterpreter("-1", .{ .number = -1.0 });
     try testInterpreter("-1.1", .{ .number = -1.1 });
     try testInterpreter("-3.1415", .{ .number = -3.1415 });
+}
+
+test "interpret: binary operations" {
+    try testInterpreter("1 + 1", .{ .number = 2 });
+    try testInterpreter("1 - 1", .{ .number = 0 });
+    try testInterpreter("2 * 2", .{ .number = 4 });
+    try testInterpreter("2 / 2", .{ .number = 1 });
+
+    try testInterpreter("1 > 0", .{ .booln = true });
+    try testInterpreter("1 >= 0", .{ .booln = true });
+    try testInterpreter("1 >= 1", .{ .booln = true });
+    try testInterpreter("1 < 2", .{ .booln = true });
+    try testInterpreter("1 <= 2", .{ .booln = true });
+    try testInterpreter("1 <= 1", .{ .booln = true });
+    try testInterpreter("1 == 1", .{ .booln = true });
+    try testInterpreter("1 != 2", .{ .booln = true });
+
+    {
+        const alctr = std.testing.allocator;
+        const result = Interpreter.stringValueFromSlice("hello_world", alctr);
+        defer result.deinit();
+
+        try testInterpreter("\"hello_\" + \"world\"", result);
+    }
 }
 
 const std = @import("std");
