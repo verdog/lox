@@ -10,6 +10,18 @@ const Value = union(enum) {
             else => {},
         }
     }
+
+    pub fn toString(v: Value, alctr: std.mem.Allocator) []u8 {
+        switch (v) {
+            .nil => return alctr.dupe(u8, "(nil)") catch @panic("OOM"),
+            .booln => |b| return if (b)
+                alctr.dupe(u8, "true") catch @panic("OOM")
+            else
+                alctr.dupe(u8, "false") catch @panic("OOM"),
+            .number => |n| return std.fmt.allocPrint(alctr, "{d}", .{n}) catch @panic("OOM"),
+            .string => |s| return std.fmt.allocPrint(alctr, "\"{s}\"", .{s.items}) catch @panic("OOM"),
+        }
+    }
 };
 
 pub const Interpreter = struct {

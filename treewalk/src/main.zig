@@ -37,18 +37,20 @@ fn runFile(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
-    _ = try run(bytes);
+    var interpreter = interp.Interpreter.init();
+    _ = try run(bytes, interpreter);
 }
 
 fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 512;
+    var interpreter = interp.Interpreter.init();
 
     while (true) {
         try ux.out.print("> ", .{});
         try ux.stdout_buffer.flush();
         const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
-            _ = run(line) catch |e|
+            _ = run(line, interpreter) catch |e|
                 log.info("failed to run line: {s}, {}", .{ line, e });
         } else {
             break;
@@ -56,7 +58,7 @@ fn runPrompt() !void {
     }
 }
 
-fn run(bytes: []const u8) !ux.Result {
+fn run(bytes: []const u8, intr: interp.Interpreter) !ux.Result {
     log.debug("run({s})", .{bytes});
 
     var lexer = lex.Lexer.init(bytes, heap);
@@ -69,18 +71,19 @@ fn run(bytes: []const u8) !ux.Result {
     defer parser.deinit();
 
     const expr = try parser.parse();
-    const string = prs.printAst(parser.pool.fromIndex(expr.index), parser.pool, heap);
-    defer heap.free(string);
+    const ast_string = prs.printAst(parser.pool.fromIndex(expr.index), parser.pool, heap);
+    defer heap.free(ast_string);
 
-    log.debug("{s}", .{string});
+    log.debug("{s}", .{ast_string});
 
-    var interpreter = interp.Interpreter.init();
-    defer interpreter.deinit();
-
-    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, heap, interpreter);
+    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, heap, intr);
     defer interpreted_result.deinit();
 
-    log.info("{}", .{interpreted_result});
+    log.debug("{}", .{interpreted_result});
+
+    const result_string = interpreted_result.toString(heap);
+    defer heap.free(result_string);
+    try ux.out.print("-> {s}\n", .{result_string});
 
     return .{};
 }
