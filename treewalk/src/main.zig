@@ -73,6 +73,15 @@ fn run(bytes: []const u8) !ux.Result {
     defer heap.free(string);
 
     log.debug("{s}", .{string});
+
+    var interpreter = interp.Interpreter.init();
+    defer interpreter.deinit();
+
+    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, heap, interpreter);
+    defer interpreted_result.deinit();
+
+    log.info("{}", .{interpreted_result});
+
     return .{};
 }
 

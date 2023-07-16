@@ -12,7 +12,11 @@ const Value = union(enum) {
     }
 };
 
-const Interpreter = struct {
+pub const Interpreter = struct {
+    const Error = error{
+        InvalidOperand,
+    };
+
     pub fn init() Interpreter {
         return .{};
     }
@@ -22,73 +26,68 @@ const Interpreter = struct {
     }
 
     /// implements visitor interface required by parse.Expr.acceptVisitor
-    pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Value {
+    pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Error!Value {
         switch (expr) {
             .binary => |b| {
-                var left = pl.fromIndex(b.left).acceptVisitor(pl, alctr, intr);
+                var left = try pl.fromIndex(b.left).acceptVisitor(pl, alctr, intr);
                 defer left.deinit();
-                var right = pl.fromIndex(b.right).acceptVisitor(pl, alctr, intr);
+                var right = try pl.fromIndex(b.right).acceptVisitor(pl, alctr, intr);
                 defer right.deinit();
-
-                // for now.
-                std.debug.assert(std.meta.activeTag(left) == std.meta.activeTag(right));
 
                 switch (b.operator.typ) {
                     .plus => {
-                        // relying on the above assert that the active tags are equal
                         switch (left) {
-                            .number => return .{ .number = left.number + right.number },
+                            .number => {
+                                if (std.meta.activeTag(right) != .number)
+                                    return Error.InvalidOperand;
+                                return .{ .number = left.number + right.number };
+                            },
                             .string => {
+                                if (std.meta.activeTag(right) != .string)
+                                    return Error.InvalidOperand;
                                 var result: Value = .{ .string = left.string.clone() catch @panic("OOM") };
                                 result.string.appendSlice(right.string.items) catch @panic("OOM");
                                 return result;
                             },
-                            else => unreachable,
+                            else => {
+                                return Error.InvalidOperand;
+                            },
                         }
                     },
-                    .minus => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .minus => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .number = left.number - right.number };
                     },
-                    .star => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .star => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .number = left.number * right.number };
                     },
-                    .slash => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .slash => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .number = left.number / right.number };
                     },
-                    .greater => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .greater => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = left.number > right.number };
                     },
-                    .greater_eql => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .greater_eql => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = left.number >= right.number };
                     },
-                    .less => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .less => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = left.number < right.number };
                     },
-                    .less_eql => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .less_eql => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = left.number <= right.number };
                     },
-                    .eql_eql => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .eql_eql => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = std.meta.eql(left, right) };
                     },
-                    .bang_eql => {
-                        std.debug.assert(std.meta.activeTag(left) == .number);
-                        std.debug.assert(std.meta.activeTag(right) == .number);
+                    .bang_eql => |o| {
+                        try assertNumberOperands(o, left, right);
                         return .{ .booln = !std.meta.eql(left, right) };
                     },
 
@@ -96,10 +95,11 @@ const Interpreter = struct {
                 }
             },
             .unary => |u| {
-                var value = pl.fromIndex(u.right).acceptVisitor(pl, alctr, intr);
+                var value = try pl.fromIndex(u.right).acceptVisitor(pl, alctr, intr);
+
                 switch (u.operator.typ) {
                     .minus => {
-                        std.debug.assert(std.meta.activeTag(value) == .number);
+                        try assertNumberOperand(u.operator.typ, value);
                         return .{ .number = -value.number };
                     },
                     .bang => {
@@ -109,8 +109,8 @@ const Interpreter = struct {
                     else => unreachable,
                 }
             },
-            .grouping => |g| return pl.fromIndex(g.expression).acceptVisitor(pl, alctr, intr),
-            .literal => |l| return interpretTokenValue(l.value, alctr),
+            .grouping => |g| return try pl.fromIndex(g.expression).acceptVisitor(pl, alctr, intr),
+            .literal => |l| return try interpretTokenValue(l.value, alctr),
         }
 
         unreachable;
@@ -121,9 +121,9 @@ const Interpreter = struct {
         return .{ .string = std.ArrayList(u8).fromOwnedSlice(alctr, string_memory) };
     }
 
-    fn interpretTokenValue(token: lex.Token, alctr: std.mem.Allocator) Value {
+    fn interpretTokenValue(token: lex.Token, alctr: std.mem.Allocator) Error!Value {
         return switch (token.typ) {
-            .number => .{ .number = std.fmt.parseFloat(f64, token.lexeme) catch @panic("NAN") },
+            .number => .{ .number = std.fmt.parseFloat(f64, token.lexeme) catch return Error.InvalidOperand },
             .true => .{ .booln = true },
             .false => .{ .booln = false },
             .string => {
@@ -143,6 +143,19 @@ const Interpreter = struct {
             .booln => |b| b,
             else => true,
         };
+    }
+
+    fn assertNumberOperand(operator: lex.TokenType, value: Value) !void {
+        _ = operator;
+        if (std.meta.activeTag(value) == .number) return;
+        return Error.InvalidOperand;
+    }
+
+    fn assertNumberOperands(operator: lex.TokenType, left: Value, right: Value) !void {
+        _ = operator;
+        if (std.meta.activeTag(left) == .number and std.meta.activeTag(right) == .number) return;
+        // TODO be more detailed
+        return Error.InvalidOperand;
     }
 };
 
@@ -166,7 +179,7 @@ fn testInterpreter(
     var interpreter = Interpreter.init();
     defer interpreter.deinit();
 
-    const interpreted_result = parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, alctr, interpreter);
+    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, alctr, interpreter);
     defer interpreted_result.deinit();
 
     switch (result) {
