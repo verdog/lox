@@ -27,6 +27,7 @@ const Value = union(enum) {
 pub const Interpreter = struct {
     const Error = error{
         InvalidOperand,
+        Unimplemented,
     };
 
     pub fn init() Interpreter {
@@ -131,6 +132,7 @@ pub const Interpreter = struct {
             },
             .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, alctr, intr),
             .literal => |l| return try interpretTokenValue(l.value, alctr),
+            .variable => |_| return Error.Unimplemented,
         }
     }
 
@@ -145,6 +147,12 @@ pub const Interpreter = struct {
             },
             .expr => |exprstmt| {
                 return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
+            },
+            .vari => |vari| {
+                _ = vari;
+                // TODO
+                // return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
+                return Error.Unimplemented;
             },
         }
     }

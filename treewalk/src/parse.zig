@@ -3,6 +3,7 @@ pub const Expr = union(enum) {
     unary: UnaryExpr,
     grouping: GroupingExpr,
     literal: LiteralExpr,
+    variable: VariableExpr,
 
     pub fn acceptVisitor(expr: Expr, pool: Pool, alctr: std.mem.Allocator, visitor: anytype) VisitorResult(@TypeOf(visitor)) {
         return visitor.visit(expr, pool, alctr);
@@ -34,9 +35,14 @@ const LiteralExpr = struct {
     value: lex.Token,
 };
 
+const VariableExpr = struct {
+    name: lex.Token,
+};
+
 pub const Stmt = union(enum) {
     expr: ExprStmt,
     print: PrintStmt,
+    vari: VarStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, alctr: std.mem.Allocator, visitor: anytype) VisitorResult(@TypeOf(visitor)) {
         return visitor.visit(stmt, pool, alctr);
@@ -53,6 +59,11 @@ const ExprStmt = struct {
 
 const PrintStmt = struct {
     expr: Pool.ExprIndex,
+};
+
+const VarStmt = struct {
+    name: lex.Token,
+    initializer: ?Pool.ExprIndex,
 };
 
 pub const Pool = struct {
@@ -93,6 +104,12 @@ pub const Pool = struct {
         return pool.lastStmt();
     }
 
+    pub fn addVarStmt(pool: *Pool, name: lex.Token, initializer: ?ExprIndex) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .vari = .{ .name = name, .initializer = initializer } };
+        return pool.lastStmt();
+    }
+
     pub fn addLiteral(pool: *Pool, token: lex.Token) Handle {
         pool.exprs.append(undefined) catch @panic("OOM");
         pool.exprs.items[pool.exprs.items.len - 1] = .{ .literal = .{ .value = token } };
@@ -122,6 +139,14 @@ pub const Pool = struct {
         pool.exprs.items[pool.exprs.items.len - 1] = .{ .unary = .{
             .operator = operator,
             .right = right,
+        } };
+        return pool.lastExpr();
+    }
+
+    pub fn addVariable(pool: *Pool, name: lex.Token) Handle {
+        pool.exprs.append(undefined) catch @panic("OOM");
+        pool.exprs.items[pool.exprs.items.len - 1] = .{ .variable = .{
+            .name = name,
         } };
         return pool.lastExpr();
     }
@@ -159,6 +184,7 @@ pub const Parser = struct {
     last_error: ?Error = null,
     const Error = error{
         UnexpectedToken,
+        Recoverable,
     };
 
     pub fn init(tokens: []lex.Token, alctr: std.mem.Allocator) Parser {
@@ -178,21 +204,26 @@ pub const Parser = struct {
     //
     // low precedence
     //
-    // program    -> statement* EOF ;
-    // statement  -> expr_stmt
-    //            |  print_stmt ;
-    // expr_stmt  -> expression ";" ;
-    // print_stmt -> "print" expression ";" ;
+    // program     -> declaration* EOF ;
+    // declaration -> var_decl
+    //             |  statement ;
     //
-    // expression -> equality ;
-    // equality   -> comparison ( ( "!=" | "==" ) comparison )* ;
-    // comparison -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
-    // term       -> factor ( ( "-" | "+" ) factor )* ;
-    // factor     -> unary ( ( "/" | "*" ) unary )* ;
-    // unary      -> ( "!" | "-" ) unary
-    //            | primary ;
-    // primary    -> NUMBER | STRING | "true" | "false" | "nil"
-    //            | "(" expression ")" ;
+    // var_decl    -> "var" IDENTIFIER ( "=" expression )? ";" ;
+    //
+    // statement   -> expr_stmt
+    //             |  print_stmt ;
+    // expr_stmt   -> expression ";" ;
+    // print_stmt  -> "print" expression ";" ;
+    //
+    // expression  -> equality ;
+    // equality    -> comparison ( ( "!=" | "==" ) comparison )* ;
+    // comparison  -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
+    // term        -> factor ( ( "-" | "+" ) factor )* ;
+    // factor      -> unary ( ( "/" | "*" ) unary )* ;
+    // unary       -> ( "!" | "   -" ) unary
+    //             | primary ;
+    // primary     -> NUMBER | STRING | "true" | "false" | "nil"
+    //             | "(" expression ")" | IDENTIFIER ;
     //
     // high precedence
     //
@@ -203,11 +234,42 @@ pub const Parser = struct {
         errdefer statements.deinit();
 
         while (!p.isAtEnd()) {
-            const handle = try p.statement();
+            const handle = p.declaration() catch |e| switch (e) {
+                Error.Recoverable => {
+                    // TODO
+                    log.debug("Caught recoverable error, continuing...", .{});
+                    continue;
+                },
+                else => return e,
+            };
             statements.append(handle.stmt_index) catch @panic("OOM");
         }
 
         return statements.toOwnedSlice() catch @panic("OOM");
+    }
+
+    fn declaration(p: *Parser) Error!Pool.Handle {
+        const result = blk: {
+            if (p.match(.@"var")) break :blk p.var_decl();
+            break :blk p.statement();
+        } catch {
+            p.synchronize();
+            return Error.Recoverable;
+        };
+
+        return result;
+    }
+
+    fn var_decl(p: *Parser) Error!Pool.Handle {
+        const name = try p.consume(.identifier, "Expected variable name");
+
+        const initr_handle = if (p.match(.eql))
+            try p.expression()
+        else
+            null;
+
+        _ = try p.consume(.semicolon, "Expected ';' after variable declaration");
+        return p.pool.addVarStmt(name, if (initr_handle) |h| h.expr_index else null);
     }
 
     fn statement(p: *Parser) Error!Pool.Handle {
@@ -295,21 +357,26 @@ pub const Parser = struct {
             return p.pool.addGrouping(expr.expr_index);
         }
 
+        if (p.match(.identifier)) {
+            return p.pool.addVariable(p.previous());
+        }
+
         Parser.printUserErrorAtToken(p.peek(), "Expected expression");
         return Error.UnexpectedToken;
     }
 
     fn synchronize(p: *Parser) void {
         // advance to the start of the next statement
-        p.advance();
+        _ = p.advance();
         while (!p.isAtEnd()) {
             if (p.previous().typ == .semicolon) return;
 
             switch (p.peek().typ) {
                 .class, .@"for", .fun, .@"if", .print, .@"return", .@"var", .@"while" => return,
+                else => {}, // try again
             }
 
-            p.advance();
+            _ = p.advance();
         }
     }
 
@@ -390,6 +457,9 @@ pub const AstPrinter = struct {
             .literal => |lit| {
                 return std.fmt.allocPrint(alct, "{s}", .{lit.value.lexeme}) catch @panic("OOM");
             },
+            .variable => |v| {
+                return std.fmt.allocPrint(alct, "var:{s}", .{v.name.lexeme}) catch @panic("OOM");
+            },
         }
     }
 
@@ -404,6 +474,12 @@ pub const AstPrinter = struct {
                 const expr = pl.getExpr(exprstmt.expr).acceptVisitor(pl, alct, self);
                 defer alct.free(expr);
                 return std.fmt.allocPrint(alct, "expr: {s}", .{expr}) catch @panic("OOM");
+            },
+            .vari => |vari| {
+                const name = vari.name.lexeme;
+                const maybe_initr = if (vari.initializer) |i| pl.getExpr(i).acceptVisitor(pl, alct, self) else null;
+                defer if (maybe_initr) |initr| alct.free(initr);
+                return std.fmt.allocPrint(alct, "var_decl: {s}: {?s}", .{ name, maybe_initr }) catch @panic("OOM");
             },
         }
     }
@@ -506,6 +582,38 @@ test "parse test 5" {
         \\expr: (== (group (+ true false)) (- "hello world" 2.2))
     ;
     try testParser(text, &.{expected_tree});
+}
+
+test "parse test 6" {
+    const text =
+        \\ var foo = "bar";
+    ;
+    const expected_tree =
+        \\var_decl: foo: "bar"
+    ;
+    try testParser(text, &.{expected_tree});
+}
+
+test "parse test 7" {
+    const text =
+        \\ var foo;
+    ;
+    const expected_tree =
+        \\var_decl: foo: null
+    ;
+    try testParser(text, &.{expected_tree});
+}
+
+test "parse test 8" {
+    const text =
+        \\ var foo;
+        \\ var bar = foo + 2;
+    ;
+    const expected_trees = &.{
+        "var_decl: foo: null",
+        "var_decl: bar: (+ var:foo 2)",
+    };
+    try testParser(text, expected_trees);
 }
 
 const std = @import("std");
