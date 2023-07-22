@@ -70,20 +70,19 @@ fn run(bytes: []const u8, intr: interp.Interpreter) !ux.Result {
     var parser = prs.Parser.init(tokens, heap);
     defer parser.deinit();
 
-    const expr = try parser.parse();
-    const ast_string = prs.printAst(parser.pool.fromIndex(expr.index), parser.pool, heap);
-    defer heap.free(ast_string);
+    const stmts = try parser.parse();
+    defer heap.free(stmts);
 
-    log.debug("{s}", .{ast_string});
+    for (stmts) |stmt| {
+        var printer = prs.AstPrinter{};
+        const ast_string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, printer);
+        defer heap.free(ast_string);
+        log.debug("{s}", .{ast_string});
 
-    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, heap, intr);
-    defer interpreted_result.deinit();
-
-    log.debug("{}", .{interpreted_result});
-
-    const result_string = interpreted_result.toString(heap);
-    defer heap.free(result_string);
-    try ux.out.print("-> {s}\n", .{result_string});
+        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, intr);
+        defer interpreted_result.deinit();
+        log.debug("-> {}", .{interpreted_result});
+    }
 
     return .{};
 }

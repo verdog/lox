@@ -18,7 +18,7 @@ const Value = union(enum) {
                 alctr.dupe(u8, "true") catch @panic("OOM")
             else
                 alctr.dupe(u8, "false") catch @panic("OOM"),
-            .number => |n| return std.fmt.allocPrint(alctr, "{d}", .{n}) catch @panic("OOM"),
+            .number => |n| return std.fmt.allocPrint(alctr, "{d:.4}", .{n}) catch @panic("OOM"),
             .string => |s| return std.fmt.allocPrint(alctr, "\"{s}\"", .{s.items}) catch @panic("OOM"),
         }
     }
@@ -38,12 +38,20 @@ pub const Interpreter = struct {
     }
 
     /// implements visitor interface required by parse.Expr.acceptVisitor
-    pub fn visit(intr: Interpreter, expr: prs.Expr, pl: prs.ExprPool, alctr: std.mem.Allocator) Error!Value {
+    pub fn visit(intr: Interpreter, node: anytype, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
+        switch (@TypeOf(node)) {
+            prs.Expr => return try intr.visitExpr(node, pl, alctr),
+            prs.Stmt => return try intr.visitStmt(node, pl, alctr),
+            else => @compileError("oops"),
+        }
+    }
+
+    fn visitExpr(intr: Interpreter, expr: prs.Expr, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
         switch (expr) {
             .binary => |b| {
-                var left = try pl.fromIndex(b.left).acceptVisitor(pl, alctr, intr);
+                var left = try pl.getExpr(b.left).acceptVisitor(pl, alctr, intr);
                 defer left.deinit();
-                var right = try pl.fromIndex(b.right).acceptVisitor(pl, alctr, intr);
+                var right = try pl.getExpr(b.right).acceptVisitor(pl, alctr, intr);
                 defer right.deinit();
 
                 switch (b.operator.typ) {
@@ -107,7 +115,7 @@ pub const Interpreter = struct {
                 }
             },
             .unary => |u| {
-                var value = try pl.fromIndex(u.right).acceptVisitor(pl, alctr, intr);
+                var value = try pl.getExpr(u.right).acceptVisitor(pl, alctr, intr);
 
                 switch (u.operator.typ) {
                     .minus => {
@@ -121,11 +129,24 @@ pub const Interpreter = struct {
                     else => unreachable,
                 }
             },
-            .grouping => |g| return try pl.fromIndex(g.expression).acceptVisitor(pl, alctr, intr),
+            .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, alctr, intr),
             .literal => |l| return try interpretTokenValue(l.value, alctr),
         }
+    }
 
-        unreachable;
+    fn visitStmt(intr: Interpreter, stmt: prs.Stmt, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
+        switch (stmt) {
+            .print => |print| {
+                const value = try intr.visitExpr(pl.getExpr(print.expr), pl, alctr);
+                const string = value.toString(alctr);
+                defer alctr.free(string);
+                ux.out.print("{s}\n", .{string}) catch @panic("stdout failure");
+                return .{ .nil = {} };
+            },
+            .expr => |exprstmt| {
+                return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
+            },
+        }
     }
 
     fn stringValueFromSlice(string: []const u8, alctr: std.mem.Allocator) Value {
@@ -186,28 +207,32 @@ fn testInterpreter(
     var parser = prs.Parser.init(tokens, alctr);
     defer parser.deinit();
 
-    const expr = try parser.parse();
+    const stmts = try parser.parse();
+    try std.testing.expectEqual(stmts.len, 1);
+    defer alctr.free(stmts);
 
     var interpreter = Interpreter.init();
     defer interpreter.deinit();
 
-    const interpreted_result = try parser.pool.fromIndex(expr.index).acceptVisitor(parser.pool, alctr, interpreter);
-    defer interpreted_result.deinit();
+    for (stmts) |stmt| {
+        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, alctr, interpreter);
+        defer interpreted_result.deinit();
 
-    switch (result) {
-        .string => |s| try std.testing.expectEqualStrings(s.items, interpreted_result.string.items),
-        else => {
-            try std.testing.expectEqual(result, interpreted_result);
-        },
+        switch (result) {
+            .string => |s| try std.testing.expectEqualStrings(s.items, interpreted_result.string.items),
+            else => {
+                try std.testing.expectEqual(result, interpreted_result);
+            },
+        }
     }
 }
 
 test "interpret: parse literals" {
-    try testInterpreter("true", .{ .booln = true });
-    try testInterpreter("false", .{ .booln = false });
-    try testInterpreter("1", .{ .number = 1.0 });
-    try testInterpreter("1.1", .{ .number = 1.1 });
-    try testInterpreter("3.1415", .{ .number = 3.1415 });
+    try testInterpreter("true;", .{ .booln = true });
+    try testInterpreter("false;", .{ .booln = false });
+    try testInterpreter("1;", .{ .number = 1.0 });
+    try testInterpreter("1.1;", .{ .number = 1.1 });
+    try testInterpreter("3.1415;", .{ .number = 3.1415 });
 
     {
         const alctr = std.testing.allocator;
@@ -215,21 +240,21 @@ test "interpret: parse literals" {
         const result = Interpreter.stringValueFromSlice("fee fie foh fum", alctr);
         defer result.deinit();
 
-        try testInterpreter("\"fee fie foh fum\"", result);
+        try testInterpreter("\"fee fie foh fum\";", result);
     }
 }
 
 test "interpret: simple literal groupings" {
-    try testInterpreter("(true)", .{ .booln = true });
-    try testInterpreter("(((((true)))))", .{ .booln = true });
-    try testInterpreter("(false)", .{ .booln = false });
-    try testInterpreter("(((((false)))))", .{ .booln = false });
-    try testInterpreter("(1)", .{ .number = 1.0 });
-    try testInterpreter("(((((1)))))", .{ .number = 1.0 });
-    try testInterpreter("(1.1)", .{ .number = 1.1 });
-    try testInterpreter("(((((1.1)))))", .{ .number = 1.1 });
-    try testInterpreter("(3.1415)", .{ .number = 3.1415 });
-    try testInterpreter("(((((3.1415)))))", .{ .number = 3.1415 });
+    try testInterpreter("(true);", .{ .booln = true });
+    try testInterpreter("(((((true)))));", .{ .booln = true });
+    try testInterpreter("(false);", .{ .booln = false });
+    try testInterpreter("(((((false)))));", .{ .booln = false });
+    try testInterpreter("(1);", .{ .number = 1.0 });
+    try testInterpreter("(((((1)))));", .{ .number = 1.0 });
+    try testInterpreter("(1.1);", .{ .number = 1.1 });
+    try testInterpreter("(((((1.1)))));", .{ .number = 1.1 });
+    try testInterpreter("(3.1415);", .{ .number = 3.1415 });
+    try testInterpreter("(((((3.1415)))));", .{ .number = 3.1415 });
 
     {
         const alctr = std.testing.allocator;
@@ -237,43 +262,43 @@ test "interpret: simple literal groupings" {
         const result = Interpreter.stringValueFromSlice("fee fie foh fum", alctr);
         defer result.deinit();
 
-        try testInterpreter("(\"fee fie foh fum\")", result);
-        try testInterpreter("(((((\"fee fie foh fum\")))))", result);
+        try testInterpreter("(\"fee fie foh fum\");", result);
+        try testInterpreter("(((((\"fee fie foh fum\")))));", result);
     }
 }
 
 test "interpret: unary operations" {
-    try testInterpreter("!true", .{ .booln = false });
-    try testInterpreter("!false", .{ .booln = true });
-    try testInterpreter("!!true", .{ .booln = true });
-    try testInterpreter("!!false", .{ .booln = false });
+    try testInterpreter("!true;", .{ .booln = false });
+    try testInterpreter("!false;", .{ .booln = true });
+    try testInterpreter("!!true;", .{ .booln = true });
+    try testInterpreter("!!false;", .{ .booln = false });
 
-    try testInterpreter("-1", .{ .number = -1.0 });
-    try testInterpreter("-1.1", .{ .number = -1.1 });
-    try testInterpreter("-3.1415", .{ .number = -3.1415 });
+    try testInterpreter("-1;", .{ .number = -1.0 });
+    try testInterpreter("-1.1;", .{ .number = -1.1 });
+    try testInterpreter("-3.1415;", .{ .number = -3.1415 });
 }
 
 test "interpret: binary operations" {
-    try testInterpreter("1 + 1", .{ .number = 2 });
-    try testInterpreter("1 - 1", .{ .number = 0 });
-    try testInterpreter("2 * 2", .{ .number = 4 });
-    try testInterpreter("2 / 2", .{ .number = 1 });
+    try testInterpreter("1 + 1;", .{ .number = 2 });
+    try testInterpreter("1 - 1;", .{ .number = 0 });
+    try testInterpreter("2 * 2;", .{ .number = 4 });
+    try testInterpreter("2 / 2;", .{ .number = 1 });
 
-    try testInterpreter("1 > 0", .{ .booln = true });
-    try testInterpreter("1 >= 0", .{ .booln = true });
-    try testInterpreter("1 >= 1", .{ .booln = true });
-    try testInterpreter("1 < 2", .{ .booln = true });
-    try testInterpreter("1 <= 2", .{ .booln = true });
-    try testInterpreter("1 <= 1", .{ .booln = true });
-    try testInterpreter("1 == 1", .{ .booln = true });
-    try testInterpreter("1 != 2", .{ .booln = true });
+    try testInterpreter("1 > 0;", .{ .booln = true });
+    try testInterpreter("1 >= 0;", .{ .booln = true });
+    try testInterpreter("1 >= 1;", .{ .booln = true });
+    try testInterpreter("1 < 2;", .{ .booln = true });
+    try testInterpreter("1 <= 2;", .{ .booln = true });
+    try testInterpreter("1 <= 1;", .{ .booln = true });
+    try testInterpreter("1 == 1;", .{ .booln = true });
+    try testInterpreter("1 != 2;", .{ .booln = true });
 
     {
         const alctr = std.testing.allocator;
         const result = Interpreter.stringValueFromSlice("hello_world", alctr);
         defer result.deinit();
 
-        try testInterpreter("\"hello_\" + \"world\"", result);
+        try testInterpreter("\"hello_\" + \"world\";", result);
     }
 }
 
