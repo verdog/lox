@@ -27,11 +27,13 @@ const Value = union(enum) {
 const Environment = struct {
     alctr: std.mem.Allocator,
     values: std.StringArrayHashMap(Value),
+    parent: ?*Environment,
 
     pub fn init(alctr: std.mem.Allocator) Environment {
         return .{
             .alctr = alctr,
             .values = std.StringArrayHashMap(Value).init(alctr),
+            .parent = null,
         };
     }
 
@@ -54,14 +56,17 @@ const Environment = struct {
 
     pub fn assign(env: *Environment, name: []const u8, value: Value) InterpreterError!void {
         var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
-        if (!gop.found_existing)
+        if (!gop.found_existing) {
+            if (env.parent) |parent| return try parent.assign(name, value);
             return InterpreterError.UndefinedVariable;
+        }
         gop.value_ptr.* = value;
     }
 
     pub fn get(env: *Environment, name: []const u8) InterpreterError!Value {
         const maybe_value = env.values.get(@constCast(name));
         if (maybe_value) |val| return val;
+        if (env.parent) |parent| return try parent.get(name);
         return InterpreterError.UndefinedVariable;
     }
 };
@@ -571,6 +576,114 @@ test "interpret: global variable assignment 5" {
     ;
 
     try testInterpreterOutput(txt, output);
+}
+
+test "environment: define/get" {
+    var alctr = std.testing.allocator;
+    var env = Environment.init(alctr);
+    defer env.deinit();
+
+    const value = Value{ .number = 123.456 };
+
+    env.define("foo", value);
+    const lookup = try env.get("foo");
+    try std.testing.expectEqual(value, lookup);
+}
+
+test "environment: define/define/get" {
+    var alctr = std.testing.allocator;
+    var env = Environment.init(alctr);
+    defer env.deinit();
+
+    const value1 = Value{ .number = 123.456 };
+    const value2 = Value{ .number = 789 };
+
+    env.define("foo", value1);
+    {
+        const lookup = try env.get("foo");
+        try std.testing.expectEqual(value1, lookup);
+    }
+    env.define("foo", value2);
+    {
+        const lookup = try env.get("foo");
+        try std.testing.expectEqual(value2, lookup);
+    }
+}
+
+test "environment: define/assign/get" {
+    var alctr = std.testing.allocator;
+    var env = Environment.init(alctr);
+    defer env.deinit();
+
+    const value1 = Value{ .number = 123.456 };
+    const value2 = Value{ .number = 789 };
+
+    env.define("foo", value1);
+    {
+        const lookup = try env.get("foo");
+        try std.testing.expectEqual(value1, lookup);
+    }
+    try env.assign("foo", value2);
+    {
+        const lookup = try env.get("foo");
+        try std.testing.expectEqual(value2, lookup);
+    }
+}
+
+test "environment: parents" {
+    var alctr = std.testing.allocator;
+    var root = Environment.init(alctr);
+    defer root.deinit();
+    var leaf = Environment.init(alctr);
+    defer leaf.deinit();
+    leaf.parent = &root;
+
+    const value1 = Value{ .number = 123 };
+    const value2 = Value{ .number = 456 };
+
+    root.define("foo", value1);
+    leaf.define("bar", value2);
+
+    {
+        const lookup = try root.get("foo");
+        try std.testing.expectEqual(value1, lookup);
+    }
+    {
+        const lookup = try leaf.get("foo");
+        try std.testing.expectEqual(value1, lookup);
+    }
+    {
+        // not in root scope
+        try std.testing.expectError(InterpreterError.UndefinedVariable, root.get("bar"));
+    }
+    {
+        const lookup = try leaf.get("bar");
+        try std.testing.expectEqual(value2, lookup);
+    }
+}
+
+test "environment: shadowing" {
+    var alctr = std.testing.allocator;
+    var root = Environment.init(alctr);
+    defer root.deinit();
+    var leaf = Environment.init(alctr);
+    defer leaf.deinit();
+    leaf.parent = &root;
+
+    const value1 = Value{ .number = 123 };
+    const value2 = Value{ .number = 456 };
+
+    root.define("foo", value1);
+    leaf.define("foo", value2); // shadowing value1
+
+    {
+        const lookup = try root.get("foo");
+        try std.testing.expectEqual(value1, lookup);
+    }
+    {
+        const lookup = try leaf.get("foo");
+        try std.testing.expectEqual(value2, lookup);
+    }
 }
 
 const std = @import("std");
