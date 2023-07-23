@@ -19,7 +19,14 @@ const Value = union(enum) {
             else
                 alctr.dupe(u8, "false") catch @panic("OOM"),
             .number => |n| return std.fmt.allocPrint(alctr, "{d:.4}", .{n}) catch @panic("OOM"),
-            .string => |s| return std.fmt.allocPrint(alctr, "\"{s}\"", .{s.items}) catch @panic("OOM"),
+            .string => |s| return std.fmt.allocPrint(alctr, "{s}", .{s.items}) catch @panic("OOM"),
+        }
+    }
+
+    pub fn dupe(v: Value) Value {
+        switch (v) {
+            .string => |s| return Value{ .string = s.clone() catch @panic("OOM") },
+            else => return v, // no heap memory to manage in other cases
         }
     }
 };
@@ -42,6 +49,7 @@ const Environment = struct {
             var i = env.values.iterator();
             while (i.next()) |pair| {
                 env.alctr.free(pair.key_ptr.*);
+                pair.value_ptr.deinit();
             }
         }
         env.values.deinit();
@@ -60,6 +68,7 @@ const Environment = struct {
             if (env.parent) |parent| return try parent.assign(name, value);
             return InterpreterError.UndefinedVariable;
         }
+        gop.value_ptr.deinit();
         gop.value_ptr.* = value;
     }
 
@@ -78,23 +87,33 @@ pub const InterpreterError = error{
 };
 
 pub const Interpreter = struct {
-    env: Environment,
+    alctr: std.mem.Allocator,
+    root_env: *Environment,
+    current_env: *Environment,
 
     pub fn init(alctr: std.mem.Allocator) @This() {
+        var root_env = alctr.create(Environment) catch @panic("OOM");
+        root_env.* = Environment.init(alctr);
         return .{
-            .env = Environment.init(alctr),
+            .alctr = alctr,
+            .root_env = root_env,
+            .current_env = root_env,
         };
     }
 
     pub fn deinit(intr: *@This()) void {
-        intr.env.deinit();
+        intr.root_env.deinit();
+        intr.alctr.destroy(intr.root_env);
     }
 
     /// implements visitor interface required by parse.Expr.acceptVisitor
     pub fn visit(intr: *@This(), node: anytype, pl: prs.Pool, ctx: anytype) InterpreterError!Value {
         switch (@TypeOf(node)) {
             prs.Expr => return try intr.visitExpr(node, pl, ctx),
-            prs.Stmt => return try intr.visitStmt(node, pl, ctx),
+            prs.Stmt => {
+                try intr.visitStmt(node, pl, ctx);
+                return Value{ .nil = {} };
+            },
             else => @compileError("oops"),
         }
     }
@@ -169,6 +188,7 @@ pub const Interpreter = struct {
             },
             .unary => |u| {
                 var value = try pl.getExpr(u.right).acceptVisitor(pl, ctx, intr);
+                defer value.deinit();
 
                 switch (u.operator.typ) {
                     .minus => {
@@ -184,16 +204,20 @@ pub const Interpreter = struct {
             },
             .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, ctx, intr),
             .literal => |l| return try interpretTokenValue(l.value, ctx.alctr),
-            .variable => |v| return try intr.env.get(v.name.lexeme),
+            .variable => |v| {
+                const value = try intr.current_env.get(v.name.lexeme);
+                return value.dupe();
+            },
             .assign => |a| {
                 const value = try pl.getExpr(a.right).acceptVisitor(pl, ctx, intr);
-                try intr.env.assign(a.name.lexeme, value);
-                return value;
+                // env owns value now
+                try intr.current_env.assign(a.name.lexeme, value);
+                return value.dupe();
             },
         }
     }
 
-    fn visitStmt(intr: *@This(), stmt: prs.Stmt, pl: prs.Pool, ctx: anytype) InterpreterError!Value {
+    fn visitStmt(intr: *@This(), stmt: prs.Stmt, pl: prs.Pool, ctx: anytype) InterpreterError!void {
         switch (stmt) {
             .print => |print| {
                 const value = try intr.visitExpr(pl.getExpr(print.expr), pl, ctx);
@@ -201,10 +225,12 @@ pub const Interpreter = struct {
                 const string = value.toString(ctx.alctr);
                 defer ctx.alctr.free(string);
                 ctx.out.print("{s}\n", .{string}) catch @panic("stdout failure");
-                return .{ .nil = {} };
+                return;
             },
             .expr => |exprstmt| {
-                return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, ctx);
+                var value = try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, ctx);
+                value.deinit();
+                return;
             },
             .vari => |vari| {
                 var value = Value{ .nil = {} };
@@ -212,9 +238,30 @@ pub const Interpreter = struct {
                     value = try intr.visitExpr(pl.getExpr(initr), pl, ctx);
                 }
 
-                intr.env.define(vari.name.lexeme, value);
-                return Value{ .nil = {} };
+                // environment owns the value now
+                intr.current_env.define(vari.name.lexeme, value);
+                return;
             },
+            .block => |block| {
+                var env = ctx.alctr.create(Environment) catch @panic("OOM");
+                defer ctx.alctr.destroy(env);
+                env.* = Environment.init(ctx.alctr);
+                env.parent = intr.current_env;
+                defer env.deinit();
+
+                try intr.executeBlock(pl, block.statements, ctx, env);
+                return;
+            },
+        }
+    }
+
+    fn executeBlock(intr: *@This(), pool: prs.Pool, stmts: []prs.Pool.StmtIndex, ctx: anytype, new_env: *Environment) !void {
+        const previous_env = intr.current_env;
+        intr.current_env = new_env;
+        defer intr.current_env = previous_env;
+
+        for (stmts) |stmt_index| {
+            try intr.visitStmt(pool.getStmt(stmt_index), pool, ctx);
         }
     }
 
@@ -261,117 +308,119 @@ fn stringValueFromSlice(string: []const u8, alctr: std.mem.Allocator) Value {
     return .{ .string = std.ArrayList(u8).fromOwnedSlice(alctr, string_memory) };
 }
 
-fn testInterpreter(
-    comptime text: []const u8,
-    result: Value,
-) !void {
-    const alctr = std.testing.allocator;
-
-    var lexer = lex.Lexer.init(text, alctr);
-    defer lexer.deinit();
-
-    const tokens = try lexer.scanTokens();
-    defer alctr.free(tokens);
-
-    var parser = prs.Parser.init(tokens, alctr);
-    defer parser.deinit();
-
-    const stmts = try parser.parse();
-    try std.testing.expectEqual(stmts.len, 1);
-    defer alctr.free(stmts);
-
-    var interpreter = Interpreter.init(alctr);
-    defer interpreter.deinit();
-
-    var ctx = .{ .alctr = alctr, .out = std.io.null_writer };
-
-    for (stmts) |stmt| {
-        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, ctx, &interpreter);
-        defer interpreted_result.deinit();
-
-        switch (result) {
-            .string => |s| try std.testing.expectEqualStrings(s.items, interpreted_result.string.items),
-            else => {
-                try std.testing.expectEqual(result, interpreted_result);
-            },
-        }
-    }
-}
-
-test "interpret: parse literals" {
-    try testInterpreter("true;", .{ .booln = true });
-    try testInterpreter("false;", .{ .booln = false });
-    try testInterpreter("1;", .{ .number = 1.0 });
-    try testInterpreter("1.1;", .{ .number = 1.1 });
-    try testInterpreter("3.1415;", .{ .number = 3.1415 });
-
-    {
-        const alctr = std.testing.allocator;
-        // note the removed quotes
-        const result = stringValueFromSlice("fee fie foh fum", alctr);
-        defer result.deinit();
-
-        try testInterpreter("\"fee fie foh fum\";", result);
-    }
-}
-
-test "interpret: simple literal groupings" {
-    try testInterpreter("(true);", .{ .booln = true });
-    try testInterpreter("(((((true)))));", .{ .booln = true });
-    try testInterpreter("(false);", .{ .booln = false });
-    try testInterpreter("(((((false)))));", .{ .booln = false });
-    try testInterpreter("(1);", .{ .number = 1.0 });
-    try testInterpreter("(((((1)))));", .{ .number = 1.0 });
-    try testInterpreter("(1.1);", .{ .number = 1.1 });
-    try testInterpreter("(((((1.1)))));", .{ .number = 1.1 });
-    try testInterpreter("(3.1415);", .{ .number = 3.1415 });
-    try testInterpreter("(((((3.1415)))));", .{ .number = 3.1415 });
-
-    {
-        const alctr = std.testing.allocator;
-        // note the removed quotes
-        const result = stringValueFromSlice("fee fie foh fum", alctr);
-        defer result.deinit();
-
-        try testInterpreter("(\"fee fie foh fum\");", result);
-        try testInterpreter("(((((\"fee fie foh fum\")))));", result);
-    }
-}
-
-test "interpret: unary operations" {
-    try testInterpreter("!true;", .{ .booln = false });
-    try testInterpreter("!false;", .{ .booln = true });
-    try testInterpreter("!!true;", .{ .booln = true });
-    try testInterpreter("!!false;", .{ .booln = false });
-
-    try testInterpreter("-1;", .{ .number = -1.0 });
-    try testInterpreter("-1.1;", .{ .number = -1.1 });
-    try testInterpreter("-3.1415;", .{ .number = -3.1415 });
-}
-
-test "interpret: binary operations" {
-    try testInterpreter("1 + 1;", .{ .number = 2 });
-    try testInterpreter("1 - 1;", .{ .number = 0 });
-    try testInterpreter("2 * 2;", .{ .number = 4 });
-    try testInterpreter("2 / 2;", .{ .number = 1 });
-
-    try testInterpreter("1 > 0;", .{ .booln = true });
-    try testInterpreter("1 >= 0;", .{ .booln = true });
-    try testInterpreter("1 >= 1;", .{ .booln = true });
-    try testInterpreter("1 < 2;", .{ .booln = true });
-    try testInterpreter("1 <= 2;", .{ .booln = true });
-    try testInterpreter("1 <= 1;", .{ .booln = true });
-    try testInterpreter("1 == 1;", .{ .booln = true });
-    try testInterpreter("1 != 2;", .{ .booln = true });
-
-    {
-        const alctr = std.testing.allocator;
-        const result = stringValueFromSlice("hello_world", alctr);
-        defer result.deinit();
-
-        try testInterpreter("\"hello_\" + \"world\";", result);
-    }
-}
+// TODO convert these tests to the output checking form
+//
+// fn testInterpreter(
+//     comptime text: []const u8,
+//     result: Value,
+// ) !void {
+//     const alctr = std.testing.allocator;
+//
+//     var lexer = lex.Lexer.init(text, alctr);
+//     defer lexer.deinit();
+//
+//     const tokens = try lexer.scanTokens();
+//     defer alctr.free(tokens);
+//
+//     var parser = prs.Parser.init(tokens, alctr);
+//     defer parser.deinit();
+//
+//     const stmts = try parser.parse();
+//     try std.testing.expectEqual(stmts.len, 1);
+//     defer alctr.free(stmts);
+//
+//     var interpreter = Interpreter.init(alctr);
+//     defer interpreter.deinit();
+//
+//     var ctx = .{ .alctr = alctr, .out = std.io.null_writer };
+//
+//     for (stmts) |stmt| {
+//         const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, ctx, &interpreter);
+//         defer interpreted_result.deinit();
+//
+//         switch (result) {
+//             .string => |s| try std.testing.expectEqualStrings(s.items, interpreted_result.string.items),
+//             else => {
+//                 try std.testing.expectEqual(result, interpreted_result);
+//             },
+//         }
+//     }
+// }
+//
+// test "interpret: parse literals" {
+//     try testInterpreter("true;", .{ .booln = true });
+//     try testInterpreter("false;", .{ .booln = false });
+//     try testInterpreter("1;", .{ .number = 1.0 });
+//     try testInterpreter("1.1;", .{ .number = 1.1 });
+//     try testInterpreter("3.1415;", .{ .number = 3.1415 });
+//
+//     {
+//         const alctr = std.testing.allocator;
+//         // note the removed quotes
+//         const result = stringValueFromSlice("fee fie foh fum", alctr);
+//         defer result.deinit();
+//
+//         try testInterpreter("\"fee fie foh fum\";", result);
+//     }
+// }
+//
+// test "interpret: simple literal groupings" {
+//     try testInterpreter("(true);", .{ .booln = true });
+//     try testInterpreter("(((((true)))));", .{ .booln = true });
+//     try testInterpreter("(false);", .{ .booln = false });
+//     try testInterpreter("(((((false)))));", .{ .booln = false });
+//     try testInterpreter("(1);", .{ .number = 1.0 });
+//     try testInterpreter("(((((1)))));", .{ .number = 1.0 });
+//     try testInterpreter("(1.1);", .{ .number = 1.1 });
+//     try testInterpreter("(((((1.1)))));", .{ .number = 1.1 });
+//     try testInterpreter("(3.1415);", .{ .number = 3.1415 });
+//     try testInterpreter("(((((3.1415)))));", .{ .number = 3.1415 });
+//
+//     {
+//         const alctr = std.testing.allocator;
+//         // note the removed quotes
+//         const result = stringValueFromSlice("fee fie foh fum", alctr);
+//         defer result.deinit();
+//
+//         try testInterpreter("(\"fee fie foh fum\");", result);
+//         try testInterpreter("(((((\"fee fie foh fum\")))));", result);
+//     }
+// }
+//
+// test "interpret: unary operations" {
+//     try testInterpreter("!true;", .{ .booln = false });
+//     try testInterpreter("!false;", .{ .booln = true });
+//     try testInterpreter("!!true;", .{ .booln = true });
+//     try testInterpreter("!!false;", .{ .booln = false });
+//
+//     try testInterpreter("-1;", .{ .number = -1.0 });
+//     try testInterpreter("-1.1;", .{ .number = -1.1 });
+//     try testInterpreter("-3.1415;", .{ .number = -3.1415 });
+// }
+//
+// test "interpret: binary operations" {
+//     try testInterpreter("1 + 1;", .{ .number = 2 });
+//     try testInterpreter("1 - 1;", .{ .number = 0 });
+//     try testInterpreter("2 * 2;", .{ .number = 4 });
+//     try testInterpreter("2 / 2;", .{ .number = 1 });
+//
+//     try testInterpreter("1 > 0;", .{ .booln = true });
+//     try testInterpreter("1 >= 0;", .{ .booln = true });
+//     try testInterpreter("1 >= 1;", .{ .booln = true });
+//     try testInterpreter("1 < 2;", .{ .booln = true });
+//     try testInterpreter("1 <= 2;", .{ .booln = true });
+//     try testInterpreter("1 <= 1;", .{ .booln = true });
+//     try testInterpreter("1 == 1;", .{ .booln = true });
+//     try testInterpreter("1 != 2;", .{ .booln = true });
+//
+//     {
+//         const alctr = std.testing.allocator;
+//         const result = stringValueFromSlice("hello_world", alctr);
+//         defer result.deinit();
+//
+//         try testInterpreter("\"hello_\" + \"world\";", result);
+//     }
+// }
 
 fn testInterpreterOutput(
     comptime text: []const u8,
@@ -684,6 +733,119 @@ test "environment: shadowing" {
         const lookup = try leaf.get("foo");
         try std.testing.expectEqual(value2, lookup);
     }
+}
+
+test "interpreter: scopes 1" {
+    const txt =
+        \\{
+        \\var a = 2;
+        \\print a;
+        \\}
+    ;
+
+    const output =
+        \\2.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: scopes 2" {
+    const txt =
+        \\{
+        \\var a = "inner a";
+        \\print a;
+        \\}
+    ;
+
+    const output =
+        \\inner a
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: scopes 3" {
+    const txt =
+        \\{
+        \\var a = "inner a";
+        \\var b = a;
+        \\print a + b;
+        \\}
+    ;
+
+    const output =
+        \\inner ainner a
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: scopes 4" {
+    const txt =
+        \\var a = "global a";
+        \\{
+        \\  var a = "outer a";
+        \\  {
+        \\    var a = "inner a";
+        \\    print a;
+        \\  }
+        \\  print a;
+        \\}
+        \\print a;
+    ;
+
+    const output =
+        \\inner a
+        \\outer a
+        \\global a
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: scopes 5" {
+    const txt =
+        \\var a = "global a";
+        \\var b = "global b";
+        \\var c = "global c";
+        \\{
+        \\  var a = "outer a";
+        \\  var b = "outer b";
+        \\  {
+        \\    var a = "inner a";
+        \\    print a;
+        \\    print b;
+        \\    print c;
+        \\  }
+        \\  print a;
+        \\  print b;
+        \\  print c;
+        \\}
+        \\print a;
+        \\print b;
+        \\print c;
+    ;
+
+    const output =
+        \\inner a
+        \\outer b
+        \\global c
+        \\outer a
+        \\outer b
+        \\global c
+        \\global a
+        \\global b
+        \\global c
+        \\
+    ;
+
+    std.debug.print("5\n", .{});
+    try testInterpreterOutput(txt, output);
 }
 
 const std = @import("std");

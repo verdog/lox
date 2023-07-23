@@ -49,9 +49,17 @@ pub const Stmt = union(enum) {
     expr: ExprStmt,
     print: PrintStmt,
     vari: VarStmt,
+    block: BlockStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(stmt, pool, ctx);
+    }
+
+    pub fn deinit(stmt: *Stmt, owning_alctr: std.mem.Allocator) void {
+        switch (stmt.*) {
+            .block => |block| owning_alctr.free(block.statements),
+            inline else => {},
+        }
     }
 
     fn VisitorResult(comptime visitor: type) type {
@@ -72,9 +80,13 @@ const VarStmt = struct {
     initializer: ?Pool.ExprIndex,
 };
 
+const BlockStmt = struct {
+    statements: []Pool.StmtIndex,
+};
+
 pub const Pool = struct {
-    const ExprIndex = u16;
-    const StmtIndex = u16;
+    pub const ExprIndex = u16;
+    pub const StmtIndex = u16;
 
     const Handle = union(enum) {
         expr_index: ExprIndex,
@@ -94,6 +106,9 @@ pub const Pool = struct {
     }
 
     pub fn deinit(self: Pool) void {
+        for (self.stmts.items) |*stmt| {
+            stmt.deinit(self.alctr);
+        }
         self.exprs.deinit();
         self.stmts.deinit();
     }
@@ -113,6 +128,12 @@ pub const Pool = struct {
     pub fn addVarStmt(pool: *Pool, name: lex.Token, initializer: ?ExprIndex) Handle {
         pool.stmts.append(undefined) catch @panic("OOM");
         pool.stmts.items[pool.stmts.items.len - 1] = .{ .vari = .{ .name = name, .initializer = initializer } };
+        return pool.lastStmt();
+    }
+
+    pub fn addBlockStmt(pool: *Pool) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .block = .{ .statements = undefined } };
         return pool.lastStmt();
     }
 
@@ -227,9 +248,11 @@ pub const Parser = struct {
     // var_decl    -> "var" IDENTIFIER ( "=" expression )? ";" ;
     //
     // statement   -> expr_stmt
-    //             |  print_stmt ;
+    //             |  print_stmt
+    //             |  block;
     // expr_stmt   -> expression ";" ;
     // print_stmt  -> "print" expression ";" ;
+    // block       => "{" declaration* "}"
     //
     // expression  -> assignment ;
     // assignment  -> IDENTIFIER "=" assignment
@@ -292,6 +315,8 @@ pub const Parser = struct {
 
     fn statement(p: *Parser) Error!Pool.Handle {
         if (p.match(.print)) return try p.print_statement();
+        if (p.match(.lbrace)) return try p.block();
+
         return try p.expression_statement();
     }
 
@@ -305,6 +330,26 @@ pub const Parser = struct {
         var expr = try p.expression();
         _ = try p.consume(.semicolon, "Expected ';' after expression");
         return p.pool.addExprStmt(expr.expr_index);
+    }
+
+    fn block(p: *Parser) Error!Pool.Handle {
+        var blk_h = p.pool.addBlockStmt();
+        const contents = try p.blockContents();
+        p.pool.stmts.items[blk_h.stmt_index].block.statements = contents;
+        return blk_h;
+    }
+
+    fn blockContents(p: *Parser) ![]Pool.StmtIndex {
+        var list = std.ArrayList(Pool.StmtIndex).init(p.alctr);
+
+        while (!p.check(.rbrace) and !p.isAtEnd()) {
+            const stmt = try p.declaration();
+            list.append(stmt.stmt_index) catch @panic("OOM");
+        }
+
+        _ = try p.consume(.rbrace, "Expected '}' after block");
+
+        return list.toOwnedSlice() catch @panic("OOM");
     }
 
     fn expression(p: *Parser) Error!Pool.Handle {
@@ -522,6 +567,19 @@ pub const AstPrinter = struct {
                 defer if (maybe_initr) |initr| ctx.alctr.free(initr);
                 return std.fmt.allocPrint(ctx.alctr, "var_decl: {s}: {?s}", .{ name, maybe_initr }) catch @panic("OOM");
             },
+            .block => |block| {
+                var string = std.ArrayList(u8).init(ctx.alctr);
+                var writer = string.writer();
+
+                writer.print("block len:{d} : ", .{block.statements.len}) catch @panic("OOM");
+                for (block.statements) |stmt| {
+                    const contents = pl.getStmt(stmt).acceptVisitor(pl, ctx, &self);
+                    defer ctx.alctr.free(contents);
+                    writer.print("{s},", .{contents}) catch @panic("OOM");
+                }
+
+                return string.toOwnedSlice() catch @panic("OOM");
+            },
         }
     }
 };
@@ -669,6 +727,35 @@ test "parse test 9" {
         "var_decl: foo: null",
         "var_decl: bar: (+ var:foo 2)",
         "expr: assign:bar=(* var:foo var:foo)",
+    };
+    try testParser(text, expected_trees);
+}
+
+test "parse test 10" {
+    const text =
+        \\{
+        \\var foo = 2 * 2;
+        \\}
+    ;
+    const expected_trees = &.{
+        "block len:1 : var_decl: foo: (* 2 2),",
+    };
+    try testParser(text, expected_trees);
+}
+
+test "parse test 11" {
+    const text =
+        \\var foo = 0;
+        \\{
+        \\var foo = 1;
+        \\var bar = 2;
+        \\}
+        \\var bar = 3;
+    ;
+    const expected_trees = &.{
+        "var_decl: foo: 0",
+        "block len:2 : var_decl: foo: 1,var_decl: bar: 2,",
+        "var_decl: bar: 3",
     };
     try testParser(text, expected_trees);
 }
