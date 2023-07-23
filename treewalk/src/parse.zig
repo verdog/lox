@@ -5,8 +5,8 @@ pub const Expr = union(enum) {
     literal: LiteralExpr,
     variable: VariableExpr,
 
-    pub fn acceptVisitor(expr: Expr, pool: Pool, alctr: std.mem.Allocator, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
-        return visitor.visit(expr, pool, alctr);
+    pub fn acceptVisitor(expr: Expr, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
+        return visitor.visit(expr, pool, ctx);
     }
 
     fn VisitorResult(comptime visitor: type) type {
@@ -44,8 +44,8 @@ pub const Stmt = union(enum) {
     print: PrintStmt,
     vari: VarStmt,
 
-    pub fn acceptVisitor(stmt: Stmt, pool: Pool, alctr: std.mem.Allocator, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
-        return visitor.visit(stmt, pool, alctr);
+    pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
+        return visitor.visit(stmt, pool, ctx);
     }
 
     fn VisitorResult(comptime visitor: type) type {
@@ -427,59 +427,59 @@ pub const Parser = struct {
 };
 
 pub const AstPrinter = struct {
-    pub fn visit(self: @This(), node: anytype, pl: Pool, alct: std.mem.Allocator) []u8 {
+    pub fn visit(self: @This(), node: anytype, pl: Pool, ctx: anytype) []u8 {
         return switch (@TypeOf(node)) {
-            Expr => self.visitExpr(node, pl, alct),
-            Stmt => self.visitStmt(node, pl, alct),
+            Expr => self.visitExpr(node, pl, ctx),
+            Stmt => self.visitStmt(node, pl, ctx),
             else => @compileError("oops"),
         };
     }
 
-    fn visitExpr(self: @This(), exp: Expr, pl: Pool, alct: std.mem.Allocator) []u8 {
+    fn visitExpr(self: @This(), exp: Expr, pl: Pool, ctx: anytype) []u8 {
         switch (exp) {
             .binary => |bin| {
-                const left = pl.getExpr(bin.left).acceptVisitor(pl, alct, &self);
-                defer alct.free(left);
-                const right = pl.getExpr(bin.right).acceptVisitor(pl, alct, &self);
-                defer alct.free(right);
-                return std.fmt.allocPrint(alct, "({s} {s} {s})", .{ bin.operator.lexeme, left, right }) catch @panic("OOM");
+                const left = pl.getExpr(bin.left).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(left);
+                const right = pl.getExpr(bin.right).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(right);
+                return std.fmt.allocPrint(ctx.alctr, "({s} {s} {s})", .{ bin.operator.lexeme, left, right }) catch @panic("OOM");
             },
             .unary => |un| {
-                const right = pl.getExpr(un.right).acceptVisitor(pl, alct, &self);
-                defer alct.free(right);
-                return std.fmt.allocPrint(alct, "({s} {s})", .{ un.operator.lexeme, right }) catch @panic("OOM");
+                const right = pl.getExpr(un.right).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(right);
+                return std.fmt.allocPrint(ctx.alctr, "({s} {s})", .{ un.operator.lexeme, right }) catch @panic("OOM");
             },
             .grouping => |grp| {
-                const expression = pl.getExpr(grp.expression).acceptVisitor(pl, alct, &self);
-                defer alct.free(expression);
-                return std.fmt.allocPrint(alct, "(group {s})", .{expression}) catch @panic("OOM");
+                const expression = pl.getExpr(grp.expression).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(expression);
+                return std.fmt.allocPrint(ctx.alctr, "(group {s})", .{expression}) catch @panic("OOM");
             },
             .literal => |lit| {
-                return std.fmt.allocPrint(alct, "{s}", .{lit.value.lexeme}) catch @panic("OOM");
+                return std.fmt.allocPrint(ctx.alctr, "{s}", .{lit.value.lexeme}) catch @panic("OOM");
             },
             .variable => |v| {
-                return std.fmt.allocPrint(alct, "var:{s}", .{v.name.lexeme}) catch @panic("OOM");
+                return std.fmt.allocPrint(ctx.alctr, "var:{s}", .{v.name.lexeme}) catch @panic("OOM");
             },
         }
     }
 
-    fn visitStmt(self: @This(), stm: Stmt, pl: Pool, alct: std.mem.Allocator) []u8 {
+    fn visitStmt(self: @This(), stm: Stmt, pl: Pool, ctx: anytype) []u8 {
         switch (stm) {
             .print => |print| {
-                const expr = pl.getExpr(print.expr).acceptVisitor(pl, alct, &self);
-                defer alct.free(expr);
-                return std.fmt.allocPrint(alct, "print: {s}", .{expr}) catch @panic("OOM");
+                const expr = pl.getExpr(print.expr).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(expr);
+                return std.fmt.allocPrint(ctx.alctr, "print: {s}", .{expr}) catch @panic("OOM");
             },
             .expr => |exprstmt| {
-                const expr = pl.getExpr(exprstmt.expr).acceptVisitor(pl, alct, &self);
-                defer alct.free(expr);
-                return std.fmt.allocPrint(alct, "expr: {s}", .{expr}) catch @panic("OOM");
+                const expr = pl.getExpr(exprstmt.expr).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(expr);
+                return std.fmt.allocPrint(ctx.alctr, "expr: {s}", .{expr}) catch @panic("OOM");
             },
             .vari => |vari| {
                 const name = vari.name.lexeme;
-                const maybe_initr = if (vari.initializer) |i| pl.getExpr(i).acceptVisitor(pl, alct, &self) else null;
-                defer if (maybe_initr) |initr| alct.free(initr);
-                return std.fmt.allocPrint(alct, "var_decl: {s}: {?s}", .{ name, maybe_initr }) catch @panic("OOM");
+                const maybe_initr = if (vari.initializer) |i| pl.getExpr(i).acceptVisitor(pl, ctx, &self) else null;
+                defer if (maybe_initr) |initr| ctx.alctr.free(initr);
+                return std.fmt.allocPrint(ctx.alctr, "var_decl: {s}: {?s}", .{ name, maybe_initr }) catch @panic("OOM");
             },
         }
     }
@@ -502,7 +502,8 @@ test "printAst" {
     );
 
     var printer = AstPrinter{};
-    const string = pool.getExpr(b.expr_index).acceptVisitor(pool, alctr, &printer);
+    var ctx = .{ .alctr = alctr };
+    const string = pool.getExpr(b.expr_index).acceptVisitor(pool, ctx, &printer);
     defer alctr.free(string);
 
     try std.testing.expectEqualStrings("(* (- 123) (group 45.67))", string);
@@ -528,7 +529,8 @@ fn testParser(
 
     for (stmts, expected_prints) |stmt, expected| {
         var printer = AstPrinter{};
-        const string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, alctr, &printer);
+        var ctx = .{ .alctr = alctr };
+        const string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, ctx, &printer);
         defer alctr.free(string);
         try std.testing.expectEqualStrings(expected, string);
     }

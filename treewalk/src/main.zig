@@ -37,13 +37,13 @@ fn runFile(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
-    var interpreter = interp.Interpreter(@TypeOf(ux.out)).init(heap, ux.out);
+    var interpreter = interp.Interpreter.init(heap);
     _ = try run(bytes, &interpreter);
 }
 
 fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 512;
-    var interpreter = interp.Interpreter(@TypeOf(ux.out)).init(heap, ux.out);
+    var interpreter = interp.Interpreter.init(heap);
     defer interpreter.deinit();
 
     while (true) {
@@ -59,7 +59,7 @@ fn runPrompt() !void {
     }
 }
 
-fn run(bytes: []const u8, intr: *interp.Interpreter(@TypeOf(ux.out))) !ux.Result {
+fn run(bytes: []const u8, intr: *interp.Interpreter) !ux.Result {
     log.debug("run({s})", .{bytes});
 
     var lexer = lex.Lexer.init(bytes, heap);
@@ -74,13 +74,15 @@ fn run(bytes: []const u8, intr: *interp.Interpreter(@TypeOf(ux.out))) !ux.Result
     const stmts = try parser.parse();
     defer heap.free(stmts);
 
+    var ctx = .{ .alctr = heap, .out = ux.out };
+
     for (stmts) |stmt| {
         var printer = prs.AstPrinter{};
-        const ast_string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, &printer);
+        const ast_string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, ctx, &printer);
         defer heap.free(ast_string);
         log.debug("{s}", .{ast_string});
 
-        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, intr);
+        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, ctx, intr);
         defer interpreted_result.deinit();
         log.debug("-> {}", .{interpreted_result});
     }
