@@ -46,15 +46,20 @@ const Environment = struct {
     }
 
     pub fn define(env: *Environment, name: []const u8, value: Value) void {
-        log.debug("define \"{s}\" = {}", .{ name, value });
         var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
         if (!gop.found_existing)
             gop.key_ptr.* = env.alctr.dupe(u8, name) catch @panic("OOM");
         gop.value_ptr.* = value;
     }
 
+    pub fn assign(env: *Environment, name: []const u8, value: Value) InterpreterError!void {
+        var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
+        if (!gop.found_existing)
+            return InterpreterError.UndefinedVariable;
+        gop.value_ptr.* = value;
+    }
+
     pub fn get(env: *Environment, name: []const u8) InterpreterError!Value {
-        log.debug("get \"{s}\"", .{name});
         const maybe_value = env.values.get(@constCast(name));
         if (maybe_value) |val| return val;
         return InterpreterError.UndefinedVariable;
@@ -175,7 +180,11 @@ pub const Interpreter = struct {
             .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, ctx, intr),
             .literal => |l| return try interpretTokenValue(l.value, ctx.alctr),
             .variable => |v| return try intr.env.get(v.name.lexeme),
-            .assign => |_| return InterpreterError.Unimplemented,
+            .assign => |a| {
+                const value = try pl.getExpr(a.right).acceptVisitor(pl, ctx, intr);
+                try intr.env.assign(a.name.lexeme, value);
+                return value;
+            },
         }
     }
 
@@ -455,6 +464,109 @@ test "interpret: global variable declarations 4" {
     const output =
         \\5.0000
         \\10.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable assignment" {
+    const txt =
+        \\var a = 5;
+        \\print a;
+        \\a = 10;
+        \\print a * 2;
+    ;
+
+    const output =
+        \\5.0000
+        \\20.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable assignment 2" {
+    const txt =
+        \\var a = 5;
+        \\print a;
+        \\print a = 10;
+        \\print a;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\10.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable assignment 3" {
+    const txt =
+        \\var a = 5;
+        \\var b = 10;
+        \\print a;
+        \\print b;
+        \\a = b = 3;
+        \\print a;
+        \\print b;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\3.0000
+        \\3.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable assignment 4" {
+    const txt =
+        \\var a = 5;
+        \\var b = 10;
+        \\print a;
+        \\print b;
+        \\print a = b = 3 + 1;
+        \\print a;
+        \\print b;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\4.0000
+        \\4.0000
+        \\4.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable assignment 5" {
+    const txt =
+        \\var a = 5;
+        \\var b = 10;
+        \\print a;
+        \\print b;
+        \\print a = (b = 3) + 1;
+        \\print a;
+        \\print b;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\4.0000
+        \\4.0000
+        \\3.0000
         \\
     ;
 
