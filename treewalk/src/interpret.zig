@@ -407,26 +407,26 @@ test "interpret: global variable declarations" {
     try testInterpreterOutput(txt, output);
 }
 
-// test "interpret: global variable declarations 2" {
-//     const txt =
-//         \\var a = 5;
-//         \\var b = 10;
-//         \\var c = 1;
-//         \\print (a + b) + 2 * c;
-//         \\var c = 15;
-//         \\var a = 15;
-//         \\print (a + b) + 2 * c;
-//     ;
-//
-//     const output =
-//         \\17.0000
-//         \\55.0000
-//         \\
-//     ;
-//
-//     try testInterpreterOutput(txt, output);
-// }
-//
+test "interpret: global variable declarations 2" {
+    const txt =
+        \\var a = 5;
+        \\var b = 10;
+        \\var c = 1;
+        \\print (a + b) + 2 * c;
+        \\var c = 15;
+        \\var a = 15;
+        \\print (a + b) + 2 * c;
+    ;
+
+    const output =
+        \\17.0000
+        \\55.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
 test "interpret: global variable declarations 3" {
     const txt =
         \\var a = 5; print a;
