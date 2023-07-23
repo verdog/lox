@@ -4,6 +4,7 @@ pub const Expr = union(enum) {
     grouping: GroupingExpr,
     literal: LiteralExpr,
     variable: VariableExpr,
+    assign: AssignExpr,
 
     pub fn acceptVisitor(expr: Expr, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(expr, pool, ctx);
@@ -37,6 +38,11 @@ const LiteralExpr = struct {
 
 const VariableExpr = struct {
     name: lex.Token,
+};
+
+const AssignExpr = struct {
+    name: lex.Token,
+    right: Pool.ExprIndex,
 };
 
 pub const Stmt = union(enum) {
@@ -151,6 +157,15 @@ pub const Pool = struct {
         return pool.lastExpr();
     }
 
+    pub fn addAssign(pool: *Pool, name: lex.Token, right: ExprIndex) Handle {
+        pool.exprs.append(undefined) catch @panic("OOM");
+        pool.exprs.items[pool.exprs.items.len - 1] = .{ .assign = .{
+            .name = name,
+            .right = right,
+        } };
+        return pool.lastExpr();
+    }
+
     fn lastExpr(pool: Pool) Handle {
         return .{
             .expr_index = @intCast(pool.exprs.items.len - 1),
@@ -184,6 +199,7 @@ pub const Parser = struct {
     last_error: ?Error = null,
     const Error = error{
         UnexpectedToken,
+        InvalidAssignment,
         Recoverable,
     };
 
@@ -215,7 +231,9 @@ pub const Parser = struct {
     // expr_stmt   -> expression ";" ;
     // print_stmt  -> "print" expression ";" ;
     //
-    // expression  -> equality ;
+    // expression  -> assignment ;
+    // assignment  -> IDENTIFIER "=" assignment
+    //             |  equality ;
     // equality    -> comparison ( ( "!=" | "==" ) comparison )* ;
     // comparison  -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
     // term        -> factor ( ( "-" | "+" ) factor )* ;
@@ -227,7 +245,7 @@ pub const Parser = struct {
     //
     // high precedence
     //
-    // Everything is left associative except unary, which is right associative.
+    // Everything is left associative except unary and assignment, which are right associative.
 
     pub fn parse(p: *Parser) Error![]Pool.StmtIndex {
         var statements = std.ArrayList(Pool.StmtIndex).init(p.alctr);
@@ -290,7 +308,25 @@ pub const Parser = struct {
     }
 
     fn expression(p: *Parser) Error!Pool.Handle {
-        return try p.equality();
+        return try p.assignment();
+    }
+
+    fn assignment(p: *Parser) Error!Pool.Handle {
+        const expr = try p.equality();
+
+        if (p.match(.eql)) {
+            const value = try p.assignment();
+
+            if (std.meta.activeTag(expr) != .expr_index or
+                std.meta.activeTag(p.pool.getExpr(expr.expr_index)) != .variable)
+            {
+                return Error.InvalidAssignment;
+            }
+
+            return p.pool.addAssign(p.pool.getExpr(expr.expr_index).variable.name, value.expr_index);
+        }
+
+        return expr;
     }
 
     fn equality(p: *Parser) Error!Pool.Handle {
@@ -460,6 +496,11 @@ pub const AstPrinter = struct {
             .variable => |v| {
                 return std.fmt.allocPrint(ctx.alctr, "var:{s}", .{v.name.lexeme}) catch @panic("OOM");
             },
+            .assign => |a| {
+                const string = pl.getExpr(a.right).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(string);
+                return std.fmt.allocPrint(ctx.alctr, "assign:{s}={s}", .{ a.name.lexeme, string }) catch @panic("OOM");
+            },
         }
     }
 
@@ -614,6 +655,20 @@ test "parse test 8" {
     const expected_trees = &.{
         "var_decl: foo: null",
         "var_decl: bar: (+ var:foo 2)",
+    };
+    try testParser(text, expected_trees);
+}
+
+test "parse test 9" {
+    const text =
+        \\ var foo;
+        \\ var bar = foo + 2;
+        \\ bar = foo * foo;
+    ;
+    const expected_trees = &.{
+        "var_decl: foo: null",
+        "var_decl: bar: (+ var:foo 2)",
+        "expr: assign:bar=(* var:foo var:foo)",
     };
     try testParser(text, expected_trees);
 }

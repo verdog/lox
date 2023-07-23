@@ -175,6 +175,7 @@ pub const Interpreter = struct {
             .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, ctx, intr),
             .literal => |l| return try interpretTokenValue(l.value, ctx.alctr),
             .variable => |v| return try intr.env.get(v.name.lexeme),
+            .assign => |_| return InterpreterError.Unimplemented,
         }
     }
 
