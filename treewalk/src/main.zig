@@ -37,20 +37,21 @@ fn runFile(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
-    var interpreter = interp.Interpreter.init();
-    _ = try run(bytes, interpreter);
+    var interpreter = interp.Interpreter(@TypeOf(ux.out)).init(heap, ux.out);
+    _ = try run(bytes, &interpreter);
 }
 
 fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 512;
-    var interpreter = interp.Interpreter.init();
+    var interpreter = interp.Interpreter(@TypeOf(ux.out)).init(heap, ux.out);
+    defer interpreter.deinit();
 
     while (true) {
         try ux.out.print("> ", .{});
         try ux.stdout_buffer.flush();
         const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
-            _ = run(line, interpreter) catch |e|
+            _ = run(line, &interpreter) catch |e|
                 log.info("failed to run line: {s}, {}", .{ line, e });
         } else {
             break;
@@ -58,7 +59,7 @@ fn runPrompt() !void {
     }
 }
 
-fn run(bytes: []const u8, intr: interp.Interpreter) !ux.Result {
+fn run(bytes: []const u8, intr: *interp.Interpreter(@TypeOf(ux.out))) !ux.Result {
     log.debug("run({s})", .{bytes});
 
     var lexer = lex.Lexer.init(bytes, heap);
@@ -75,7 +76,7 @@ fn run(bytes: []const u8, intr: interp.Interpreter) !ux.Result {
 
     for (stmts) |stmt| {
         var printer = prs.AstPrinter{};
-        const ast_string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, printer);
+        const ast_string = parser.pool.getStmt(stmt).acceptVisitor(parser.pool, heap, &printer);
         defer heap.free(ast_string);
         log.debug("{s}", .{ast_string});
 
@@ -98,6 +99,8 @@ const lex = @import("lex.zig");
 const prs = @import("parse.zig");
 const interp = @import("interpret.zig");
 
-var gpa = std.heap.GeneralPurposeAllocator(.{}){};
+var gpa = std.heap.GeneralPurposeAllocator(.{
+    .stack_trace_frames = 16,
+}){};
 var heap = gpa.allocator();
 const log = std.log.scoped(.main);

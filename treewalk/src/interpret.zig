@@ -24,181 +24,230 @@ const Value = union(enum) {
     }
 };
 
-pub const Interpreter = struct {
-    const Error = error{
-        InvalidOperand,
-        Unimplemented,
-    };
+const Environment = struct {
+    alctr: std.mem.Allocator,
+    values: std.StringArrayHashMap(Value),
 
-    pub fn init() Interpreter {
-        return .{};
-    }
-
-    pub fn deinit(intr: *Interpreter) void {
-        _ = intr;
-    }
-
-    /// implements visitor interface required by parse.Expr.acceptVisitor
-    pub fn visit(intr: Interpreter, node: anytype, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
-        switch (@TypeOf(node)) {
-            prs.Expr => return try intr.visitExpr(node, pl, alctr),
-            prs.Stmt => return try intr.visitStmt(node, pl, alctr),
-            else => @compileError("oops"),
-        }
-    }
-
-    fn visitExpr(intr: Interpreter, expr: prs.Expr, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
-        switch (expr) {
-            .binary => |b| {
-                var left = try pl.getExpr(b.left).acceptVisitor(pl, alctr, intr);
-                defer left.deinit();
-                var right = try pl.getExpr(b.right).acceptVisitor(pl, alctr, intr);
-                defer right.deinit();
-
-                switch (b.operator.typ) {
-                    .plus => {
-                        switch (left) {
-                            .number => {
-                                if (std.meta.activeTag(right) != .number)
-                                    return Error.InvalidOperand;
-                                return .{ .number = left.number + right.number };
-                            },
-                            .string => {
-                                if (std.meta.activeTag(right) != .string)
-                                    return Error.InvalidOperand;
-                                var result: Value = .{ .string = left.string.clone() catch @panic("OOM") };
-                                result.string.appendSlice(right.string.items) catch @panic("OOM");
-                                return result;
-                            },
-                            else => {
-                                return Error.InvalidOperand;
-                            },
-                        }
-                    },
-                    .minus => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .number = left.number - right.number };
-                    },
-                    .star => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .number = left.number * right.number };
-                    },
-                    .slash => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .number = left.number / right.number };
-                    },
-                    .greater => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = left.number > right.number };
-                    },
-                    .greater_eql => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = left.number >= right.number };
-                    },
-                    .less => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = left.number < right.number };
-                    },
-                    .less_eql => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = left.number <= right.number };
-                    },
-                    .eql_eql => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = std.meta.eql(left, right) };
-                    },
-                    .bang_eql => |o| {
-                        try assertNumberOperands(o, left, right);
-                        return .{ .booln = !std.meta.eql(left, right) };
-                    },
-
-                    else => unreachable,
-                }
-            },
-            .unary => |u| {
-                var value = try pl.getExpr(u.right).acceptVisitor(pl, alctr, intr);
-
-                switch (u.operator.typ) {
-                    .minus => {
-                        try assertNumberOperand(u.operator.typ, value);
-                        return .{ .number = -value.number };
-                    },
-                    .bang => {
-                        return .{ .booln = !isTruthy(value) };
-                    },
-
-                    else => unreachable,
-                }
-            },
-            .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, alctr, intr),
-            .literal => |l| return try interpretTokenValue(l.value, alctr),
-            .variable => |_| return Error.Unimplemented,
-        }
-    }
-
-    fn visitStmt(intr: Interpreter, stmt: prs.Stmt, pl: prs.Pool, alctr: std.mem.Allocator) Error!Value {
-        switch (stmt) {
-            .print => |print| {
-                const value = try intr.visitExpr(pl.getExpr(print.expr), pl, alctr);
-                const string = value.toString(alctr);
-                defer alctr.free(string);
-                ux.out.print("{s}\n", .{string}) catch @panic("stdout failure");
-                return .{ .nil = {} };
-            },
-            .expr => |exprstmt| {
-                return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
-            },
-            .vari => |vari| {
-                _ = vari;
-                // TODO
-                // return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
-                return Error.Unimplemented;
-            },
-        }
-    }
-
-    fn stringValueFromSlice(string: []const u8, alctr: std.mem.Allocator) Value {
-        const string_memory = alctr.dupe(u8, string) catch @panic("OOM");
-        return .{ .string = std.ArrayList(u8).fromOwnedSlice(alctr, string_memory) };
-    }
-
-    fn interpretTokenValue(token: lex.Token, alctr: std.mem.Allocator) Error!Value {
-        return switch (token.typ) {
-            .number => .{ .number = std.fmt.parseFloat(f64, token.lexeme) catch return Error.InvalidOperand },
-            .true => .{ .booln = true },
-            .false => .{ .booln = false },
-            .string => {
-                // lexemes retain their quotes, so remove them
-                return stringValueFromSlice(token.lexeme[1 .. token.lexeme.len - 1], alctr);
-            },
-            .identifier => return .{ .nil = {} }, // TODO
-
-            else => unreachable,
+    pub fn init(alctr: std.mem.Allocator) Environment {
+        return .{
+            .alctr = alctr,
+            .values = std.StringArrayHashMap(Value).init(alctr),
         };
     }
 
-    fn isTruthy(v: Value) bool {
-        // false and nil are falsey, everything else is truthy
-        return switch (v) {
-            .nil => false,
-            .booln => |b| b,
-            else => true,
-        };
+    pub fn deinit(env: *Environment) void {
+        {
+            var i = env.values.iterator();
+            while (i.next()) |pair| {
+                env.alctr.free(pair.key_ptr.*);
+            }
+        }
+        env.values.deinit();
     }
 
-    fn assertNumberOperand(operator: lex.TokenType, value: Value) !void {
-        _ = operator;
-        if (std.meta.activeTag(value) == .number) return;
-        return Error.InvalidOperand;
+    pub fn define(env: *Environment, name: []const u8, value: Value) void {
+        log.debug("define \"{s}\" = {}", .{ name, value });
+        var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
+        if (!gop.found_existing)
+            gop.key_ptr.* = env.alctr.dupe(u8, name) catch @panic("OOM");
+        gop.value_ptr.* = value;
     }
 
-    fn assertNumberOperands(operator: lex.TokenType, left: Value, right: Value) !void {
-        _ = operator;
-        if (std.meta.activeTag(left) == .number and std.meta.activeTag(right) == .number) return;
-        // TODO be more detailed
-        return Error.InvalidOperand;
+    pub fn get(env: *Environment, name: []const u8) InterpreterError!Value {
+        log.debug("get \"{s}\"", .{name});
+        const maybe_value = env.values.get(@constCast(name));
+        if (maybe_value) |val| return val;
+        return InterpreterError.UndefinedVariable;
     }
 };
+
+pub const InterpreterError = error{
+    InvalidOperand,
+    UndefinedVariable,
+    Unimplemented,
+};
+
+pub fn Interpreter(comptime OutputWriter: type) type {
+    return struct {
+        env: Environment,
+        out: OutputWriter,
+
+        pub fn init(alctr: std.mem.Allocator, output_writer: OutputWriter) @This() {
+            return .{
+                .env = Environment.init(alctr),
+                .out = output_writer,
+            };
+        }
+
+        pub fn deinit(intr: *@This()) void {
+            intr.env.deinit();
+        }
+
+        /// implements visitor interface required by parse.Expr.acceptVisitor
+        pub fn visit(intr: *@This(), node: anytype, pl: prs.Pool, alctr: std.mem.Allocator) InterpreterError!Value {
+            switch (@TypeOf(node)) {
+                prs.Expr => return try intr.visitExpr(node, pl, alctr),
+                prs.Stmt => return try intr.visitStmt(node, pl, alctr),
+                else => @compileError("oops"),
+            }
+        }
+
+        fn visitExpr(intr: *@This(), expr: prs.Expr, pl: prs.Pool, alctr: std.mem.Allocator) InterpreterError!Value {
+            switch (expr) {
+                .binary => |b| {
+                    var left = try pl.getExpr(b.left).acceptVisitor(pl, alctr, intr);
+                    defer left.deinit();
+                    var right = try pl.getExpr(b.right).acceptVisitor(pl, alctr, intr);
+                    defer right.deinit();
+
+                    switch (b.operator.typ) {
+                        .plus => {
+                            switch (left) {
+                                .number => {
+                                    if (std.meta.activeTag(right) != .number)
+                                        return InterpreterError.InvalidOperand;
+                                    return .{ .number = left.number + right.number };
+                                },
+                                .string => {
+                                    if (std.meta.activeTag(right) != .string)
+                                        return InterpreterError.InvalidOperand;
+                                    var result: Value = .{ .string = left.string.clone() catch @panic("OOM") };
+                                    result.string.appendSlice(right.string.items) catch @panic("OOM");
+                                    return result;
+                                },
+                                else => {
+                                    return InterpreterError.InvalidOperand;
+                                },
+                            }
+                        },
+                        .minus => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .number = left.number - right.number };
+                        },
+                        .star => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .number = left.number * right.number };
+                        },
+                        .slash => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .number = left.number / right.number };
+                        },
+                        .greater => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = left.number > right.number };
+                        },
+                        .greater_eql => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = left.number >= right.number };
+                        },
+                        .less => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = left.number < right.number };
+                        },
+                        .less_eql => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = left.number <= right.number };
+                        },
+                        .eql_eql => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = std.meta.eql(left, right) };
+                        },
+                        .bang_eql => |o| {
+                            try assertNumberOperands(o, left, right);
+                            return .{ .booln = !std.meta.eql(left, right) };
+                        },
+
+                        else => unreachable,
+                    }
+                },
+                .unary => |u| {
+                    var value = try pl.getExpr(u.right).acceptVisitor(pl, alctr, intr);
+
+                    switch (u.operator.typ) {
+                        .minus => {
+                            try assertNumberOperand(u.operator.typ, value);
+                            return .{ .number = -value.number };
+                        },
+                        .bang => {
+                            return .{ .booln = !isTruthy(value) };
+                        },
+
+                        else => unreachable,
+                    }
+                },
+                .grouping => |g| return try pl.getExpr(g.expression).acceptVisitor(pl, alctr, intr),
+                .literal => |l| return try interpretTokenValue(l.value, alctr),
+                .variable => |v| return try intr.env.get(v.name.lexeme),
+            }
+        }
+
+        fn visitStmt(intr: *@This(), stmt: prs.Stmt, pl: prs.Pool, alctr: std.mem.Allocator) InterpreterError!Value {
+            switch (stmt) {
+                .print => |print| {
+                    const value = try intr.visitExpr(pl.getExpr(print.expr), pl, alctr);
+                    const string = value.toString(alctr);
+                    defer alctr.free(string);
+                    intr.out.print("{s}\n", .{string}) catch @panic("stdout failure");
+                    return .{ .nil = {} };
+                },
+                .expr => |exprstmt| {
+                    return try intr.visitExpr(pl.getExpr(exprstmt.expr), pl, alctr);
+                },
+                .vari => |vari| {
+                    var value = Value{ .nil = {} };
+                    if (vari.initializer) |initr| {
+                        value = try intr.visitExpr(pl.getExpr(initr), pl, alctr);
+                    }
+
+                    intr.env.define(vari.name.lexeme, value);
+                    return Value{ .nil = {} };
+                },
+            }
+        }
+
+        fn interpretTokenValue(token: lex.Token, alctr: std.mem.Allocator) InterpreterError!Value {
+            return switch (token.typ) {
+                .number => .{ .number = std.fmt.parseFloat(f64, token.lexeme) catch return InterpreterError.InvalidOperand },
+                .true => .{ .booln = true },
+                .false => .{ .booln = false },
+                .string => {
+                    // lexemes retain their quotes, so remove them
+                    return stringValueFromSlice(token.lexeme[1 .. token.lexeme.len - 1], alctr);
+                },
+                .identifier => return .{ .nil = {} }, // TODO
+
+                else => unreachable,
+            };
+        }
+
+        fn isTruthy(v: Value) bool {
+            // false and nil are falsey, everything else is truthy
+            return switch (v) {
+                .nil => false,
+                .booln => |b| b,
+                else => true,
+            };
+        }
+
+        fn assertNumberOperand(operator: lex.TokenType, value: Value) !void {
+            _ = operator;
+            if (std.meta.activeTag(value) == .number) return;
+            return InterpreterError.InvalidOperand;
+        }
+
+        fn assertNumberOperands(operator: lex.TokenType, left: Value, right: Value) !void {
+            _ = operator;
+            if (std.meta.activeTag(left) == .number and std.meta.activeTag(right) == .number) return;
+            // TODO be more detailed
+            return InterpreterError.InvalidOperand;
+        }
+    };
+}
+
+fn stringValueFromSlice(string: []const u8, alctr: std.mem.Allocator) Value {
+    const string_memory = alctr.dupe(u8, string) catch @panic("OOM");
+    return .{ .string = std.ArrayList(u8).fromOwnedSlice(alctr, string_memory) };
+}
 
 fn testInterpreter(
     comptime text: []const u8,
@@ -219,11 +268,11 @@ fn testInterpreter(
     try std.testing.expectEqual(stmts.len, 1);
     defer alctr.free(stmts);
 
-    var interpreter = Interpreter.init();
+    var interpreter = Interpreter(@TypeOf(ux.out)).init(alctr, ux.out);
     defer interpreter.deinit();
 
     for (stmts) |stmt| {
-        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, alctr, interpreter);
+        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, alctr, &interpreter);
         defer interpreted_result.deinit();
 
         switch (result) {
@@ -245,7 +294,7 @@ test "interpret: parse literals" {
     {
         const alctr = std.testing.allocator;
         // note the removed quotes
-        const result = Interpreter.stringValueFromSlice("fee fie foh fum", alctr);
+        const result = stringValueFromSlice("fee fie foh fum", alctr);
         defer result.deinit();
 
         try testInterpreter("\"fee fie foh fum\";", result);
@@ -267,7 +316,7 @@ test "interpret: simple literal groupings" {
     {
         const alctr = std.testing.allocator;
         // note the removed quotes
-        const result = Interpreter.stringValueFromSlice("fee fie foh fum", alctr);
+        const result = stringValueFromSlice("fee fie foh fum", alctr);
         defer result.deinit();
 
         try testInterpreter("(\"fee fie foh fum\");", result);
@@ -303,11 +352,111 @@ test "interpret: binary operations" {
 
     {
         const alctr = std.testing.allocator;
-        const result = Interpreter.stringValueFromSlice("hello_world", alctr);
+        const result = stringValueFromSlice("hello_world", alctr);
         defer result.deinit();
 
         try testInterpreter("\"hello_\" + \"world\";", result);
     }
+}
+
+fn testInterpreterOutput(
+    comptime text: []const u8,
+    result: []const u8,
+) !void {
+    const alctr = std.testing.allocator;
+
+    var lexer = lex.Lexer.init(text, alctr);
+    defer lexer.deinit();
+
+    const tokens = try lexer.scanTokens();
+    defer alctr.free(tokens);
+
+    var parser = prs.Parser.init(tokens, alctr);
+    defer parser.deinit();
+
+    const stmts = try parser.parse();
+    defer alctr.free(stmts);
+
+    var out = std.ArrayList(u8).init(alctr);
+    defer out.deinit();
+
+    var interpreter = Interpreter(@TypeOf(out.writer())).init(alctr, out.writer());
+    defer interpreter.deinit();
+
+    for (stmts) |stmt| {
+        const interpreted_result = try parser.pool.getStmt(stmt).acceptVisitor(parser.pool, alctr, &interpreter);
+        defer interpreted_result.deinit();
+    }
+
+    try std.testing.expectEqualStrings(result, out.items);
+}
+
+test "interpret: global variable declarations" {
+    const txt =
+        \\var a = 5;
+        \\var b = 10;
+        \\var c = 15;
+        \\print (a + b) + 2 * c;
+    ;
+
+    const output =
+        \\45.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+// test "interpret: global variable declarations 2" {
+//     const txt =
+//         \\var a = 5;
+//         \\var b = 10;
+//         \\var c = 1;
+//         \\print (a + b) + 2 * c;
+//         \\var c = 15;
+//         \\var a = 15;
+//         \\print (a + b) + 2 * c;
+//     ;
+//
+//     const output =
+//         \\17.0000
+//         \\55.0000
+//         \\
+//     ;
+//
+//     try testInterpreterOutput(txt, output);
+// }
+//
+test "interpret: global variable declarations 3" {
+    const txt =
+        \\var a = 5; print a;
+        \\var b = 10; print b;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpret: global variable declarations 4" {
+    const txt =
+        \\var a = 5;
+        \\print a;
+        \\var a = 10;
+        \\print a;
+    ;
+
+    const output =
+        \\5.0000
+        \\10.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
 }
 
 const std = @import("std");
