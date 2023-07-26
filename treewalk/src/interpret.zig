@@ -252,6 +252,16 @@ pub const Interpreter = struct {
                 try intr.executeBlock(pl, block.statements, ctx, env);
                 return;
             },
+            .ifelse => |ifelse| {
+                const condition_eval = try intr.visitExpr(pl.getExpr(ifelse.condition), pl, ctx);
+                defer condition_eval.deinit();
+                if (isTruthy(condition_eval)) {
+                    try intr.visitStmt(pl.getStmt(ifelse.then), pl, ctx);
+                } else if (ifelse.els) |els| {
+                    try intr.visitStmt(pl.getStmt(els), pl, ctx);
+                }
+                return;
+            },
         }
     }
 
@@ -844,7 +854,56 @@ test "interpreter: scopes 5" {
         \\
     ;
 
-    std.debug.print("5\n", .{});
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: if statements 1" {
+    const txt =
+        \\if (true) {
+        \\print "it true";
+        \\}
+    ;
+
+    const output =
+        \\it true
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: if statements 2" {
+    const txt =
+        \\if (false) {
+        \\print "it true";
+        \\} else {
+        \\print "it false";
+        \\}
+    ;
+
+    const output =
+        \\it false
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: if statements 3" {
+    const txt =
+        \\var truthy = 999;
+        \\if (truthy) {
+        \\print "it true";
+        \\} else {
+        \\print "it false";
+        \\}
+    ;
+
+    const output =
+        \\it true
+        \\
+    ;
+
     try testInterpreterOutput(txt, output);
 }
 

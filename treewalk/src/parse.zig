@@ -50,6 +50,7 @@ pub const Stmt = union(enum) {
     print: PrintStmt,
     vari: VarStmt,
     block: BlockStmt,
+    ifelse: IfStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(stmt, pool, ctx);
@@ -82,6 +83,12 @@ const VarStmt = struct {
 
 const BlockStmt = struct {
     statements: []Pool.StmtIndex,
+};
+
+const IfStmt = struct {
+    condition: Pool.ExprIndex,
+    then: Pool.StmtIndex,
+    els: ?Pool.StmtIndex,
 };
 
 pub const Pool = struct {
@@ -134,6 +141,12 @@ pub const Pool = struct {
     pub fn addBlockStmt(pool: *Pool) Handle {
         pool.stmts.append(undefined) catch @panic("OOM");
         pool.stmts.items[pool.stmts.items.len - 1] = .{ .block = .{ .statements = undefined } };
+        return pool.lastStmt();
+    }
+
+    pub fn addIfStmt(pool: *Pool, expr: ExprIndex, then: StmtIndex, els: ?StmtIndex) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .ifelse = .{ .condition = expr, .then = then, .els = els } };
         return pool.lastStmt();
     }
 
@@ -248,11 +261,13 @@ pub const Parser = struct {
     // var_decl    -> "var" IDENTIFIER ( "=" expression )? ";" ;
     //
     // statement   -> expr_stmt
+    //             |  if_stmt
     //             |  print_stmt
-    //             |  block;
+    //             |  block ;
+    // if_stmt     -> "if" "(" expression ")" statement ( "else" statement )? ;
     // expr_stmt   -> expression ";" ;
     // print_stmt  -> "print" expression ";" ;
-    // block       => "{" declaration* "}"
+    // block       -> "{" declaration* "}"
     //
     // expression  -> assignment ;
     // assignment  -> IDENTIFIER "=" assignment
@@ -316,6 +331,7 @@ pub const Parser = struct {
     fn statement(p: *Parser) Error!Pool.Handle {
         if (p.match(.print)) return try p.print_statement();
         if (p.match(.lbrace)) return try p.block();
+        if (p.match(.@"if")) return try p.if_statement();
 
         return try p.expression_statement();
     }
@@ -350,6 +366,27 @@ pub const Parser = struct {
         _ = try p.consume(.rbrace, "Expected '}' after block");
 
         return list.toOwnedSlice() catch @panic("OOM");
+    }
+
+    fn if_statement(p: *Parser) Error!Pool.Handle {
+        _ = try p.consume(.lparen, "Expected '(' after if");
+        const expr_h = try p.expression();
+        const expr = expr_h.expr_index;
+        _ = try p.consume(.rparen, "Expected ')' after condition");
+
+        const then_h = try p.statement();
+        const then = then_h.stmt_index;
+
+        const els = blk: {
+            if (p.match(.@"else")) {
+                const stmt = try p.statement();
+                break :blk stmt.stmt_index;
+            } else {
+                break :blk null;
+            }
+        };
+
+        return p.pool.addIfStmt(expr, then, els);
     }
 
     fn expression(p: *Parser) Error!Pool.Handle {
@@ -579,6 +616,16 @@ pub const AstPrinter = struct {
                 }
 
                 return string.toOwnedSlice() catch @panic("OOM");
+            },
+            .ifelse => |ifelse| {
+                const condition = pl.getExpr(ifelse.condition).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(condition);
+                const then = pl.getStmt(ifelse.then).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(then);
+                const els = if (ifelse.els) |e| pl.getStmt(e).acceptVisitor(pl, ctx, &self) else ctx.alctr.dupe(u8, "") catch @panic("OOM");
+                defer ctx.alctr.free(els);
+
+                return std.fmt.allocPrint(ctx.alctr, "if({s})then({s})else({s})", .{ condition, then, els }) catch @panic("OOM");
             },
         }
     }
