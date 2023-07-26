@@ -214,6 +214,19 @@ pub const Interpreter = struct {
                 try intr.current_env.assign(a.name.lexeme, value);
                 return value.dupe();
             },
+            .logical => |l| {
+                const left = try pl.getExpr(l.left).acceptVisitor(pl, ctx, intr);
+
+                if (l.operator.typ == .@"or") {
+                    if (isTruthy(left)) return left;
+                } else {
+                    if (!isTruthy(left)) return left;
+                }
+
+                left.deinit();
+
+                return try pl.getExpr(l.right).acceptVisitor(pl, ctx, intr);
+            },
         }
     }
 
@@ -285,6 +298,7 @@ pub const Interpreter = struct {
                 return stringValueFromSlice(token.lexeme[1 .. token.lexeme.len - 1], alctr);
             },
             .identifier => return .{ .nil = {} }, // TODO
+            .nil => return .{ .nil = {} },
 
             else => unreachable,
         };
@@ -901,6 +915,40 @@ test "interpreter: if statements 3" {
 
     const output =
         \\it true
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: logical 1" {
+    const txt =
+        \\print "hi" or 2;
+        \\print nil or "yes";
+        \\print nil or nil or 2 or 3;
+    ;
+
+    const output =
+        \\hi
+        \\yes
+        \\2.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: logical 2" {
+    const txt =
+        \\print nil and 2;
+        \\print "yes" and nil;
+        \\print "yes" and "yes" and nil;
+    ;
+
+    const output =
+        \\(nil)
+        \\(nil)
+        \\(nil)
         \\
     ;
 

@@ -5,6 +5,7 @@ pub const Expr = union(enum) {
     literal: LiteralExpr,
     variable: VariableExpr,
     assign: AssignExpr,
+    logical: LogicalExpr,
 
     pub fn acceptVisitor(expr: Expr, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(expr, pool, ctx);
@@ -42,6 +43,12 @@ const VariableExpr = struct {
 
 const AssignExpr = struct {
     name: lex.Token,
+    right: Pool.ExprIndex,
+};
+
+const LogicalExpr = struct {
+    left: Pool.ExprIndex,
+    operator: lex.Token,
     right: Pool.ExprIndex,
 };
 
@@ -200,6 +207,16 @@ pub const Pool = struct {
         return pool.lastExpr();
     }
 
+    pub fn addLogical(pool: *Pool, operator: lex.Token, left: ExprIndex, right: ExprIndex) Handle {
+        pool.exprs.append(undefined) catch @panic("OOM");
+        pool.exprs.items[pool.exprs.items.len - 1] = .{ .logical = .{
+            .left = left,
+            .operator = operator,
+            .right = right,
+        } };
+        return pool.lastExpr();
+    }
+
     fn lastExpr(pool: Pool) Handle {
         return .{
             .expr_index = @intCast(pool.exprs.items.len - 1),
@@ -271,7 +288,9 @@ pub const Parser = struct {
     //
     // expression  -> assignment ;
     // assignment  -> IDENTIFIER "=" assignment
-    //             |  equality ;
+    //             -> logic_or ;
+    // logic_or    -> logic_and ( "or" logic_and )* ;
+    // logic_and   -> equality ( "and" equality )* ;
     // equality    -> comparison ( ( "!=" | "==" ) comparison )* ;
     // comparison  -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
     // term        -> factor ( ( "-" | "+" ) factor )* ;
@@ -394,7 +413,7 @@ pub const Parser = struct {
     }
 
     fn assignment(p: *Parser) Error!Pool.Handle {
-        const expr = try p.equality();
+        const expr = try p.logicOr();
 
         if (p.match(.eql)) {
             const value = try p.assignment();
@@ -408,6 +427,26 @@ pub const Parser = struct {
             return p.pool.addAssign(p.pool.getExpr(expr.expr_index).variable.name, value.expr_index);
         }
 
+        return expr;
+    }
+
+    fn logicOr(p: *Parser) Error!Pool.Handle {
+        var expr = try p.logicAnd();
+        while (p.match(.@"or")) {
+            const op = p.previous();
+            const right = try p.logicAnd();
+            expr = p.pool.addLogical(op, expr.expr_index, right.expr_index);
+        }
+        return expr;
+    }
+
+    fn logicAnd(p: *Parser) Error!Pool.Handle {
+        var expr = try p.equality();
+        while (p.match(.@"and")) {
+            const op = p.previous();
+            const right = try p.equality();
+            expr = p.pool.addLogical(op, expr.expr_index, right.expr_index);
+        }
         return expr;
     }
 
@@ -582,6 +621,13 @@ pub const AstPrinter = struct {
                 const string = pl.getExpr(a.right).acceptVisitor(pl, ctx, &self);
                 defer ctx.alctr.free(string);
                 return std.fmt.allocPrint(ctx.alctr, "assign:{s}={s}", .{ a.name.lexeme, string }) catch @panic("OOM");
+            },
+            .logical => |l| {
+                const left = pl.getExpr(l.left).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(left);
+                const right = pl.getExpr(l.right).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(right);
+                return std.fmt.allocPrint(ctx.alctr, "({s} {s} {s})", .{ l.operator.lexeme, left, right }) catch @panic("OOM");
             },
         }
     }
