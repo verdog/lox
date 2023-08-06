@@ -6,9 +6,17 @@ pub const Expr = union(enum) {
     variable: VariableExpr,
     assign: AssignExpr,
     logical: LogicalExpr,
+    call: CallExpr,
 
     pub fn acceptVisitor(expr: Expr, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(expr, pool, ctx);
+    }
+
+    pub fn deinit(expr: *Expr, owning_allocator: std.mem.Allocator) void {
+        switch (expr.*) {
+            .call => |c| owning_allocator.free(c.args),
+            inline else => {},
+        }
     }
 
     fn VisitorResult(comptime visitor: type) type {
@@ -50,6 +58,12 @@ const LogicalExpr = struct {
     left: Pool.ExprIndex,
     operator: lex.Token,
     right: Pool.ExprIndex,
+};
+
+const CallExpr = struct {
+    callee: Pool.ExprIndex,
+    closing_paren: lex.Token,
+    args: []Pool.ExprIndex,
 };
 
 pub const Stmt = union(enum) {
@@ -129,8 +143,11 @@ pub const Pool = struct {
         for (self.stmts.items) |*stmt| {
             stmt.deinit(self.alctr);
         }
-        self.exprs.deinit();
         self.stmts.deinit();
+        for (self.exprs.items) |*expr| {
+            expr.deinit(self.alctr);
+        }
+        self.exprs.deinit();
     }
 
     pub fn addPrintStmt(pool: *Pool, expr: ExprIndex) Handle {
@@ -229,6 +246,16 @@ pub const Pool = struct {
         return pool.lastExpr();
     }
 
+    pub fn addCall(pool: *Pool, callee: ExprIndex, end_paren: lex.Token, args: []ExprIndex) Handle {
+        pool.exprs.append(undefined) catch @panic("OOM");
+        pool.exprs.items[pool.exprs.items.len - 1] = .{ .call = .{
+            .callee = callee,
+            .closing_paren = end_paren,
+            .args = args,
+        } };
+        return pool.lastExpr();
+    }
+
     fn lastExpr(pool: Pool) Handle {
         return .{
             .expr_index = @intCast(pool.exprs.items.len - 1),
@@ -264,6 +291,7 @@ pub const Parser = struct {
         UnexpectedToken,
         InvalidAssignment,
         Recoverable,
+        TooManyArguments,
     };
 
     pub fn init(tokens: []lex.Token, alctr: std.mem.Allocator) Parser {
@@ -312,8 +340,9 @@ pub const Parser = struct {
     // comparison  -> term ( ( ">" | ">=" | "<" | "<=" ) term )* ;
     // term        -> factor ( ( "-" | "+" ) factor )* ;
     // factor      -> unary ( ( "/" | "*" ) unary )* ;
-    // unary       -> ( "!" | "   -" ) unary
-    //             | primary ;
+    // unary       -> ( "!" | "   -" ) unary | call ;
+    // call        -> primary ( "(" arguments? ")" )* ;
+    // arguments   -> expression ( "," expression )* ;
     // primary     -> NUMBER | STRING | "true" | "false" | "nil"
     //             | "(" expression ")" | IDENTIFIER ;
     //
@@ -589,8 +618,44 @@ pub const Parser = struct {
             const right = try p.unary();
             return p.pool.addUnary(operator, right.expr_index);
         } else {
-            return try p.primary();
+            return try p.call();
         }
+    }
+
+    fn call(p: *Parser) Error!Pool.Handle {
+        var expr = try p.primary();
+
+        while (true) {
+            if (p.match(.lparen)) {
+                expr = try p.finishCall(expr);
+            } else {
+                break;
+            }
+        }
+
+        return expr;
+    }
+
+    fn finishCall(p: *Parser, callee: Pool.Handle) Error!Pool.Handle {
+        var list = std.ArrayList(Pool.ExprIndex).init(p.alctr);
+
+        if (!p.check(.rparen)) {
+            { // do
+                var expr = try p.expression();
+                list.append(expr.expr_index) catch @panic("OOM");
+            }
+            while (p.match(.comma)) {
+                if (list.items.len >= 255) {
+                    return Error.TooManyArguments;
+                }
+                var expr = try p.expression();
+                list.append(expr.expr_index) catch @panic("OOM");
+            }
+        }
+
+        const end_paren = try p.consume(.rparen, "Expected ')' after arguments");
+
+        return p.pool.addCall(callee.expr_index, end_paren, list.toOwnedSlice() catch @panic("OOM"));
     }
 
     fn primary(p: *Parser) Error!Pool.Handle {
@@ -721,6 +786,27 @@ pub const AstPrinter = struct {
                 const right = pl.getExpr(l.right).acceptVisitor(pl, ctx, &self);
                 defer ctx.alctr.free(right);
                 return std.fmt.allocPrint(ctx.alctr, "({s} {s} {s})", .{ l.operator.lexeme, left, right }) catch @panic("OOM");
+            },
+            .call => |c| {
+                var string = std.ArrayList(u8).init(ctx.alctr);
+                var writer = string.writer();
+
+                const callee = pl.getExpr(c.callee).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(callee);
+
+                writer.print("{s}(", .{callee}) catch @panic("OOM");
+
+                var comma = false;
+                for (c.args) |a| {
+                    const a_str = pl.getExpr(a).acceptVisitor(pl, ctx, &self);
+                    defer ctx.alctr.free(a_str);
+                    if (comma) writer.print(", ", .{}) catch @panic("OOM");
+                    writer.print("{s}", .{a_str}) catch @panic("OOM");
+                    comma = true;
+                }
+                writer.print(")", .{}) catch @panic("OOM");
+
+                return string.toOwnedSlice() catch @panic("OOM");
             },
         }
     }
@@ -986,6 +1072,26 @@ test "parse test 13" {
     const expected_trees = &.{
         "var_decl: b: 0",
         "while((< var:b 3))do(block len:1 : expr: assign:b=(+ var:b 1),)",
+    };
+
+    try testParser(text, expected_trees);
+}
+
+test "parse test 14" {
+    const text =
+        \\foo();
+        \\getfoo()();
+        \\getfoo(1, 2)("hello world");
+        \\getfoo()("hello world");
+        \\getfoo(1, 2)();
+    ;
+
+    const expected_trees = &.{
+        "expr: var:foo()",
+        "expr: var:getfoo()()",
+        "expr: var:getfoo(1, 2)(\"hello world\")",
+        "expr: var:getfoo()(\"hello world\")",
+        "expr: var:getfoo(1, 2)()",
     };
 
     try testParser(text, expected_trees);

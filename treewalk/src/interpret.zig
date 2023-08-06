@@ -231,6 +231,7 @@ pub const Interpreter = struct {
 
                 return try pl.getExpr(l.right).acceptVisitor(pl, ctx, intr);
             },
+            .call => |_| unreachable,
         }
     }
 
