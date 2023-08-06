@@ -73,6 +73,7 @@ pub const Stmt = union(enum) {
     block: BlockStmt,
     ifelse: IfStmt,
     whil: WhileStmt,
+    func: FunctionStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(stmt, pool, ctx);
@@ -81,6 +82,10 @@ pub const Stmt = union(enum) {
     pub fn deinit(stmt: *Stmt, owning_alctr: std.mem.Allocator) void {
         switch (stmt.*) {
             .block => |block| owning_alctr.free(block.statements),
+            .func => |f| {
+                owning_alctr.free(f.params);
+                owning_alctr.free(f.body);
+            },
             inline else => {},
         }
     }
@@ -116,6 +121,12 @@ const IfStmt = struct {
 const WhileStmt = struct {
     condition: Pool.ExprIndex,
     do: Pool.StmtIndex,
+};
+
+const FunctionStmt = struct {
+    name: lex.Token,
+    params: []lex.Token,
+    body: []Pool.StmtIndex,
 };
 
 pub const Pool = struct {
@@ -183,6 +194,16 @@ pub const Pool = struct {
     pub fn addWhileStmt(pool: *Pool, expr: ExprIndex, do: StmtIndex) Handle {
         pool.stmts.append(undefined) catch @panic("OOM");
         pool.stmts.items[pool.stmts.items.len - 1] = .{ .whil = .{ .condition = expr, .do = do } };
+        return pool.lastStmt();
+    }
+
+    pub fn addFunctionStmt(pool: *Pool, name: lex.Token, params: []lex.Token, body: []StmtIndex) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .func = .{
+            .name = name,
+            .params = params,
+            .body = body,
+        } };
         return pool.lastStmt();
     }
 
@@ -313,9 +334,14 @@ pub const Parser = struct {
     //
     // program     -> declaration* EOF ;
     // declaration -> var_decl
+    //             |  func_decl
     //             |  statement ;
     //
     // var_decl    -> "var" IDENTIFIER ( "=" expression )? ";" ;
+    //
+    // func_decl   -> "fun" function ;
+    // function    -> IDENTIFIER "(" parameters? ")" block ;
+    // parameters  -> IDENTIFIER ( "," IDENTIFIER )* ;
     //
     // statement   -> expr_stmt
     //             |  for_stmt
@@ -371,6 +397,7 @@ pub const Parser = struct {
 
     fn declaration(p: *Parser) Error!Pool.Handle {
         const result = blk: {
+            if (p.match(.fun)) break :blk p.func_decl("function");
             if (p.match(.@"var")) break :blk p.var_decl();
             break :blk p.statement();
         } catch {
@@ -379,6 +406,32 @@ pub const Parser = struct {
         };
 
         return result;
+    }
+
+    fn func_decl(p: *Parser, comptime kind: []const u8) Error!Pool.Handle {
+        const name = try p.consume(.identifier, "Expected " ++ kind ++ " name");
+        _ = try p.consume(.lparen, "Expected '(' after " ++ kind ++ " name");
+
+        var params = std.ArrayList(lex.Token).init(p.alctr);
+        defer params.deinit();
+
+        if (!p.check(.rparen)) {
+            // do
+            {
+                params.append(try p.consume(.identifier, "Expected parameter name")) catch @panic("OOM");
+            }
+            while (p.match(.comma)) {
+                if (params.items.len >= 255) return Error.TooManyArguments;
+                params.append(try p.consume(.identifier, "Expected parameter name")) catch @panic("OOM");
+            }
+        }
+
+        _ = try p.consume(.rparen, "Expected ')' after " ++ kind ++ " parameters");
+        _ = try p.consume(.lbrace, "Expected '{' before " ++ kind ++ " body");
+
+        var body = try p.blockContents();
+
+        return p.pool.addFunctionStmt(name, params.toOwnedSlice() catch @panic("OOM"), body);
     }
 
     fn var_decl(p: *Parser) Error!Pool.Handle {
@@ -829,6 +882,31 @@ pub const AstPrinter = struct {
                 defer if (maybe_initr) |initr| ctx.alctr.free(initr);
                 return std.fmt.allocPrint(ctx.alctr, "var_decl: {s}: {?s}", .{ name, maybe_initr }) catch @panic("OOM");
             },
+            .func => |f| {
+                var string = std.ArrayList(u8).init(ctx.alctr);
+                var writer = string.writer();
+
+                writer.print("function: {s}(", .{f.name.lexeme}) catch @panic("OOM");
+
+                var comma = false;
+                for (f.params) |p| {
+                    if (comma) writer.print(", ", .{}) catch @panic("OOM");
+                    writer.print("{s}", .{p.lexeme}) catch @panic("OOM");
+                    comma = true;
+                }
+
+                writer.print(") len:{d} {{", .{f.body.len}) catch @panic("OOM");
+
+                for (f.body) |sidx| {
+                    const contents = pl.getStmt(sidx).acceptVisitor(pl, ctx, &self);
+                    defer ctx.alctr.free(contents);
+                    writer.print("{s},", .{contents}) catch @panic("OOM");
+                }
+
+                writer.print("}}", .{}) catch @panic("OOM");
+
+                return string.toOwnedSlice() catch @panic("OOM");
+            },
             .block => |block| {
                 var string = std.ArrayList(u8).init(ctx.alctr);
                 var writer = string.writer();
@@ -1092,6 +1170,38 @@ test "parse test 14" {
         "expr: var:getfoo(1, 2)(\"hello world\")",
         "expr: var:getfoo()(\"hello world\")",
         "expr: var:getfoo(1, 2)()",
+    };
+
+    try testParser(text, expected_trees);
+}
+
+test "parse test 15" {
+    const text =
+        \\fun foo(bar) {
+        \\    print bar;
+        \\}
+    ;
+
+    const expected_trees = &.{
+        "function: foo(bar) len:1 {print: var:bar,}",
+    };
+
+    try testParser(text, expected_trees);
+}
+
+test "parse test 16" {
+    const text =
+        \\fun foo(bar) {
+        \\    print bar;
+        \\}
+        \\fun baz(bar) {
+        \\    foo(bar);
+        \\}
+    ;
+
+    const expected_trees = &.{
+        "function: foo(bar) len:1 {print: var:bar,}",
+        "function: baz(bar) len:1 {expr: var:foo(var:bar),}",
     };
 
     try testParser(text, expected_trees);

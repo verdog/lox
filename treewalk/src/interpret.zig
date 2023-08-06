@@ -355,6 +355,10 @@ pub const Interpreter = struct {
                 }
                 return;
             },
+            .func => |fun| {
+                _ = fun;
+                unreachable;
+            },
         }
     }
 
