@@ -3,6 +3,7 @@ const Value = union(enum) {
     booln: bool,
     number: f64,
     string: std.ArrayList(u8),
+    callable: Callable,
 
     pub fn deinit(v: Value) void {
         switch (v) {
@@ -20,6 +21,7 @@ const Value = union(enum) {
                 alctr.dupe(u8, "false") catch @panic("OOM"),
             .number => |n| return std.fmt.allocPrint(alctr, "{d:.4}", .{n}) catch @panic("OOM"),
             .string => |s| return std.fmt.allocPrint(alctr, "{s}", .{s.items}) catch @panic("OOM"),
+            .callable => |c| return std.fmt.allocPrint(alctr, "{}", .{c}) catch @panic("OOM"),
         }
     }
 
@@ -28,6 +30,36 @@ const Value = union(enum) {
             .string => |s| return Value{ .string = s.clone() catch @panic("OOM") },
             else => return v, // no heap memory to manage in other cases
         }
+    }
+};
+
+const Callable = union(enum) {
+    const Function = struct {
+        arity: u8,
+        func: *const fn (intr: *Interpreter, args: []Value) Value,
+    };
+
+    func: Function,
+
+    pub fn call(c: *Callable, intr: *Interpreter, args: []Value) !Value {
+        switch (c.*) {
+            .func => |f| return f.func(intr, args),
+        }
+    }
+
+    pub fn arity(c: Callable) u8 {
+        switch (c) {
+            .func => |f| return f.arity,
+        }
+    }
+};
+
+const Natives = struct {
+    pub fn getTime(intr: *Interpreter, args: []Value) Value {
+        _ = intr;
+        _ = args;
+        const time = std.time.milliTimestamp();
+        return Value{ .number = @floatFromInt(time) };
     }
 };
 
@@ -87,6 +119,8 @@ const Environment = struct {
 pub const InterpreterError = error{
     InvalidOperand,
     UndefinedVariable,
+    NotCallable,
+    WrongNumberOfArguments,
     Unimplemented,
 };
 
@@ -98,6 +132,9 @@ pub const Interpreter = struct {
     pub fn init(alctr: std.mem.Allocator) @This() {
         var root_env = alctr.create(Environment) catch @panic("OOM");
         root_env.* = Environment.init(alctr);
+
+        root_env.define("time", .{ .callable = .{ .func = .{ .arity = 0, .func = Natives.getTime } } });
+
         return .{
             .alctr = alctr,
             .root_env = root_env,
@@ -231,7 +268,35 @@ pub const Interpreter = struct {
 
                 return try pl.getExpr(l.right).acceptVisitor(pl, ctx, intr);
             },
-            .call => |_| unreachable,
+            .call => |c| {
+                var callee = blk: {
+                    var m_callee = try pl.getExpr(c.callee).acceptVisitor(pl, ctx, intr);
+                    switch (m_callee) {
+                        .callable => |callee| {
+                            if (c.args.len != callee.arity()) {
+                                return InterpreterError.WrongNumberOfArguments;
+                            }
+                            break :blk m_callee.callable;
+                        },
+                        else => return InterpreterError.NotCallable,
+                    }
+                };
+
+                var args = std.ArrayList(Value).init(ctx.alctr);
+                defer {
+                    for (args.items) |*val| {
+                        val.deinit();
+                    }
+                    args.deinit();
+                }
+
+                for (c.args) |eidx| {
+                    const val = try pl.getExpr(eidx).acceptVisitor(pl, ctx, intr);
+                    args.append(val) catch @panic("OOM");
+                }
+
+                return callee.call(intr, args.items);
+            },
         }
     }
 
