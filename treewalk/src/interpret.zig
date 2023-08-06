@@ -56,20 +56,24 @@ const Environment = struct {
     }
 
     pub fn define(env: *Environment, name: []const u8, value: Value) void {
-        var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
-        if (!gop.found_existing)
-            gop.key_ptr.* = env.alctr.dupe(u8, name) catch @panic("OOM");
+        var key = env.alctr.dupe(u8, name) catch @panic("OOM");
+        var gop = env.values.getOrPut(key) catch @panic("OOM");
+        if (gop.found_existing)
+            env.alctr.free(key);
         gop.value_ptr.* = value;
     }
 
     pub fn assign(env: *Environment, name: []const u8, value: Value) InterpreterError!void {
-        var gop = env.values.getOrPut(@constCast(name)) catch @panic("OOM");
-        if (!gop.found_existing) {
-            if (env.parent) |parent| return try parent.assign(name, value);
-            return InterpreterError.UndefinedVariable;
+        var m_value = env.values.getPtr(@constCast(name));
+        if (m_value) |v_ptr| {
+            v_ptr.deinit();
+            v_ptr.* = value;
+            return;
         }
-        gop.value_ptr.deinit();
-        gop.value_ptr.* = value;
+
+        // not found
+        if (env.parent) |parent| return try parent.assign(name, value);
+        return InterpreterError.UndefinedVariable;
     }
 
     pub fn get(env: *Environment, name: []const u8) InterpreterError!Value {
@@ -272,6 +276,16 @@ pub const Interpreter = struct {
                     try intr.visitStmt(pl.getStmt(ifelse.then), pl, ctx);
                 } else if (ifelse.els) |els| {
                     try intr.visitStmt(pl.getStmt(els), pl, ctx);
+                }
+                return;
+            },
+            .whil => |whil| {
+                var condition_eval = try intr.visitExpr(pl.getExpr(whil.condition), pl, ctx);
+                defer condition_eval.deinit();
+                while (isTruthy(condition_eval)) {
+                    try intr.visitStmt(pl.getStmt(whil.do), pl, ctx);
+                    condition_eval.deinit();
+                    condition_eval = try intr.visitExpr(pl.getExpr(whil.condition), pl, ctx);
                 }
                 return;
             },
@@ -949,6 +963,82 @@ test "interpreter: logical 2" {
         \\(nil)
         \\(nil)
         \\(nil)
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: while loops 1" {
+    const txt =
+        \\var b = 0;
+        \\while (b < 3) {
+        \\  print b;
+        \\  b = b + 1;
+        \\}
+    ;
+
+    const output =
+        \\0.0000
+        \\1.0000
+        \\2.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: loops 2" {
+    const txt =
+        \\for (var b = 0; b < 3; b = b + 1) {
+        \\  print b;
+        \\}
+    ;
+
+    const output =
+        \\0.0000
+        \\1.0000
+        \\2.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: loops 3" {
+    const txt =
+        \\var a = 0;
+        \\var temp;
+        \\
+        \\for (var b = 1; a < 10000; b = temp + b) {
+        \\  print a;
+        \\  temp = a;
+        \\  a = b;
+        \\}
+    ;
+
+    const output =
+        \\0.0000
+        \\1.0000
+        \\1.0000
+        \\2.0000
+        \\3.0000
+        \\5.0000
+        \\8.0000
+        \\13.0000
+        \\21.0000
+        \\34.0000
+        \\55.0000
+        \\89.0000
+        \\144.0000
+        \\233.0000
+        \\377.0000
+        \\610.0000
+        \\987.0000
+        \\1597.0000
+        \\2584.0000
+        \\4181.0000
+        \\6765.0000
         \\
     ;
 

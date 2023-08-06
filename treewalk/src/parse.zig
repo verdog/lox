@@ -58,6 +58,7 @@ pub const Stmt = union(enum) {
     vari: VarStmt,
     block: BlockStmt,
     ifelse: IfStmt,
+    whil: WhileStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(stmt, pool, ctx);
@@ -96,6 +97,11 @@ const IfStmt = struct {
     condition: Pool.ExprIndex,
     then: Pool.StmtIndex,
     els: ?Pool.StmtIndex,
+};
+
+const WhileStmt = struct {
+    condition: Pool.ExprIndex,
+    do: Pool.StmtIndex,
 };
 
 pub const Pool = struct {
@@ -154,6 +160,12 @@ pub const Pool = struct {
     pub fn addIfStmt(pool: *Pool, expr: ExprIndex, then: StmtIndex, els: ?StmtIndex) Handle {
         pool.stmts.append(undefined) catch @panic("OOM");
         pool.stmts.items[pool.stmts.items.len - 1] = .{ .ifelse = .{ .condition = expr, .then = then, .els = els } };
+        return pool.lastStmt();
+    }
+
+    pub fn addWhileStmt(pool: *Pool, expr: ExprIndex, do: StmtIndex) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .whil = .{ .condition = expr, .do = do } };
         return pool.lastStmt();
     }
 
@@ -278,12 +290,17 @@ pub const Parser = struct {
     // var_decl    -> "var" IDENTIFIER ( "=" expression )? ";" ;
     //
     // statement   -> expr_stmt
+    //             |  for_stmt
     //             |  if_stmt
     //             |  print_stmt
+    //             |  while_stmt
     //             |  block ;
+    // for_stmt    -> "for" "(" ( var_decl | exprStmt | ";" )
+    //                expression? ";" expression? ")" statement ;
     // if_stmt     -> "if" "(" expression ")" statement ( "else" statement )? ;
     // expr_stmt   -> expression ";" ;
     // print_stmt  -> "print" expression ";" ;
+    // while_stmt  -> "while" "(" expression ")" statement ;
     // block       -> "{" declaration* "}"
     //
     // expression  -> assignment ;
@@ -351,6 +368,8 @@ pub const Parser = struct {
         if (p.match(.print)) return try p.print_statement();
         if (p.match(.lbrace)) return try p.block();
         if (p.match(.@"if")) return try p.if_statement();
+        if (p.match(.@"while")) return try p.while_statement();
+        if (p.match(.@"for")) return try p.for_statement();
 
         return try p.expression_statement();
     }
@@ -406,6 +425,80 @@ pub const Parser = struct {
         };
 
         return p.pool.addIfStmt(expr, then, els);
+    }
+
+    fn while_statement(p: *Parser) Error!Pool.Handle {
+        _ = try p.consume(.lparen, "Expected '(' after while");
+        const expr_h = try p.expression();
+        const expr = expr_h.expr_index;
+        _ = try p.consume(.rparen, "Expected ')' after condition");
+
+        const do_h = try p.statement();
+        const do = do_h.stmt_index;
+
+        return p.pool.addWhileStmt(expr, do);
+    }
+
+    fn for_statement(p: *Parser) Error!Pool.Handle {
+        // the for loop is de-sugared into an equivalent while loop.
+        //   for (var i = 0; i < 10; i = i + 1) print i;
+        //     turns into
+        //   {
+        //     var i = 0;
+        //     while (i < 10) {
+        //       print i;
+        //       i = i + 1;
+        //     }
+        //   }
+
+        _ = try p.consume(.lparen, "Expected '(' after for");
+
+        const initr = blk: {
+            if (p.match(.semicolon)) break :blk null else if (p.match(.@"var")) break :blk try p.var_decl() else break :blk try p.expression_statement();
+        };
+        // no consume semicolon here because it is included in var_decl and
+        // expression_statement
+
+        var condition = blk: {
+            if (!p.check(.semicolon)) break :blk try p.expression() else break :blk null;
+        };
+        _ = try p.consume(.semicolon, "Expected ';' after for loop condition");
+
+        const incr = blk: {
+            if (!p.check(.rparen)) break :blk try p.expression() else break :blk null;
+        };
+        _ = try p.consume(.rparen, "Expected ')' after for clauses");
+
+        var body = try p.statement();
+
+        if (incr) |inc| {
+            var blk_h = p.pool.addBlockStmt();
+            var inc_h = p.pool.addExprStmt(inc.expr_index);
+
+            var statements = &p.pool.stmts.items[blk_h.stmt_index].block.statements;
+            statements.* = p.pool.alctr.alloc(Pool.ExprIndex, 2) catch @panic("OOM");
+
+            statements.*[0] = body.stmt_index;
+            statements.*[1] = inc_h.stmt_index;
+
+            body = blk_h;
+        }
+
+        if (condition == null) condition = p.pool.addLiteral(.{ .typ = .true, .lexeme = undefined, .line = -1 });
+        body = p.pool.addWhileStmt(condition.?.expr_index, body.stmt_index);
+
+        if (initr) |i| {
+            var blk_h = p.pool.addBlockStmt();
+            var statements = &p.pool.stmts.items[blk_h.stmt_index].block.statements;
+            statements.* = p.pool.alctr.alloc(Pool.ExprIndex, 2) catch @panic("OOM");
+
+            statements.*[0] = i.stmt_index;
+            statements.*[1] = body.stmt_index;
+
+            body = blk_h;
+        }
+
+        return body;
     }
 
     fn expression(p: *Parser) Error!Pool.Handle {
@@ -673,6 +766,14 @@ pub const AstPrinter = struct {
 
                 return std.fmt.allocPrint(ctx.alctr, "if({s})then({s})else({s})", .{ condition, then, els }) catch @panic("OOM");
             },
+            .whil => |whil| {
+                const condition = pl.getExpr(whil.condition).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(condition);
+                const do = pl.getStmt(whil.do).acceptVisitor(pl, ctx, &self);
+                defer ctx.alctr.free(do);
+
+                return std.fmt.allocPrint(ctx.alctr, "while({s})do({s})", .{ condition, do }) catch @panic("OOM");
+            },
         }
     }
 };
@@ -850,6 +951,43 @@ test "parse test 11" {
         "block len:2 : var_decl: foo: 1,var_decl: bar: 2,",
         "var_decl: bar: 3",
     };
+    try testParser(text, expected_trees);
+}
+
+test "parse test 12" {
+    const text =
+        \\var a = 0;
+        \\var temp;
+        \\
+        \\for (var b = 1; a < 10000; b = temp + b) {
+        \\  print a;
+        \\  temp = a;
+        \\  a = b;
+        \\}
+    ;
+
+    const expected_trees = &.{
+        "var_decl: a: 0",
+        "var_decl: temp: null",
+        "block len:2 : var_decl: b: 1,while((< var:a 10000))do(block len:2 : block len:3 : print: var:a,expr: assign:temp=var:a,expr: assign:a=var:b,,expr: assign:b=(+ var:temp var:b),),",
+    };
+
+    try testParser(text, expected_trees);
+}
+
+test "parse test 13" {
+    const text =
+        \\var b = 0;
+        \\while (b < 3) {
+        \\  b = b + 1;
+        \\}
+    ;
+
+    const expected_trees = &.{
+        "var_decl: b: 0",
+        "while((< var:b 3))do(block len:1 : expr: assign:b=(+ var:b 1),)",
+    };
+
     try testParser(text, expected_trees);
 }
 
