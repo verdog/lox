@@ -70,6 +70,10 @@ fn run(bytes: []const u8, intr: *interp.Interpreter) !ux.Result {
 
     var parser = prs.Parser.init(tokens, heap);
     defer parser.deinit();
+    // xxx: parser.deinit() is a problem because subsequent lines can refer to previously
+    // parsed statements. e.g. defining a function and then executing it.
+    //
+    // I'm leaving this in the tree walk interpreter and will fix it in the bytecode one.
 
     const stmts = try parser.parse();
     defer heap.free(stmts);

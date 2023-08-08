@@ -21,7 +21,7 @@ const Value = union(enum) {
                 alctr.dupe(u8, "false") catch @panic("OOM"),
             .number => |n| return std.fmt.allocPrint(alctr, "{d:.4}", .{n}) catch @panic("OOM"),
             .string => |s| return std.fmt.allocPrint(alctr, "{s}", .{s.items}) catch @panic("OOM"),
-            .callable => |c| return std.fmt.allocPrint(alctr, "{}", .{c}) catch @panic("OOM"),
+            .callable => |c| return std.fmt.allocPrint(alctr, "<fn {}>", .{c}) catch @panic("OOM"),
         }
     }
 
@@ -34,22 +34,42 @@ const Value = union(enum) {
 };
 
 const Callable = union(enum) {
-    const Function = struct {
+    const NativeFunction = struct {
         arity: u8,
         func: *const fn (intr: *Interpreter, args: []Value) Value,
     };
 
-    func: Function,
+    const LoxFunction = struct {
+        arity: u8,
+        decl: prs.Stmt,
+    };
 
-    pub fn call(c: *Callable, intr: *Interpreter, args: []Value) !Value {
+    native_fn: NativeFunction,
+    lox_fn: LoxFunction,
+
+    pub fn call(c: *Callable, intr: *Interpreter, pool: prs.Pool, ctx: anytype, args: []Value) !Value {
         switch (c.*) {
-            .func => |f| return f.func(intr, args),
+            .native_fn => |f| return f.func(intr, args),
+            .lox_fn => |l| {
+                var env = ctx.alctr.create(Environment) catch @panic("OOM");
+                defer ctx.alctr.destroy(env);
+                env.* = Environment.init(ctx.alctr);
+                env.parent = intr.current_env;
+                defer env.deinit();
+
+                for (args, l.decl.func.params) |a, p| {
+                    env.define(p.lexeme, a);
+                }
+
+                try intr.executeBlock(pool, l.decl.func.body, ctx, env);
+                return Value{ .nil = {} };
+            },
         }
     }
 
     pub fn arity(c: Callable) u8 {
         switch (c) {
-            .func => |f| return f.arity,
+            inline else => |it| return it.arity,
         }
     }
 };
@@ -133,7 +153,7 @@ pub const Interpreter = struct {
         var root_env = alctr.create(Environment) catch @panic("OOM");
         root_env.* = Environment.init(alctr);
 
-        root_env.define("time", .{ .callable = .{ .func = .{ .arity = 0, .func = Natives.getTime } } });
+        root_env.define("time", .{ .callable = .{ .native_fn = .{ .arity = 0, .func = Natives.getTime } } });
 
         return .{
             .alctr = alctr,
@@ -283,19 +303,15 @@ pub const Interpreter = struct {
                 };
 
                 var args = std.ArrayList(Value).init(ctx.alctr);
-                defer {
-                    for (args.items) |*val| {
-                        val.deinit();
-                    }
-                    args.deinit();
-                }
+                defer args.deinit();
 
                 for (c.args) |eidx| {
+                    // val ownership transferred to new environment in .call below
                     const val = try pl.getExpr(eidx).acceptVisitor(pl, ctx, intr);
                     args.append(val) catch @panic("OOM");
                 }
 
-                return callee.call(intr, args.items);
+                return callee.call(intr, pl, ctx, args.items);
             },
         }
     }
@@ -356,13 +372,17 @@ pub const Interpreter = struct {
                 return;
             },
             .func => |fun| {
-                _ = fun;
-                unreachable;
+                var function = Value{ .callable = .{ .lox_fn = .{
+                    .arity = @intCast(fun.params.len),
+                    .decl = .{ .func = fun },
+                } } };
+                intr.current_env.define(fun.name.lexeme, function);
+                return;
             },
         }
     }
 
-    fn executeBlock(intr: *@This(), pool: prs.Pool, stmts: []prs.Pool.StmtIndex, ctx: anytype, new_env: *Environment) !void {
+    pub fn executeBlock(intr: *@This(), pool: prs.Pool, stmts: []prs.Pool.StmtIndex, ctx: anytype, new_env: *Environment) !void {
         const previous_env = intr.current_env;
         intr.current_env = new_env;
         defer intr.current_env = previous_env;
@@ -1109,6 +1129,59 @@ test "interpreter: loops 3" {
         \\2584.0000
         \\4181.0000
         \\6765.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: functions" {
+    const txt =
+        \\fun sayHi(first, last) {
+        \\  print "Hi, " + first + " " + last + "!";
+        \\}
+        \\
+        \\sayHi("Foo", "Bar");
+        \\sayHi("Foo", "Bar");
+    ;
+
+    const output =
+        \\Hi, Foo Bar!
+        \\Hi, Foo Bar!
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: functions 2" {
+    const txt =
+        \\fun sayHi() {
+        \\  print "Hi!";
+        \\}
+        \\
+        \\sayHi();
+    ;
+
+    const output =
+        \\Hi!
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: functions 3" {
+    const txt =
+        \\fun say(line) {
+        \\  print line;
+        \\}
+        \\
+        \\say("Hi!");
+    ;
+
+    const output =
+        \\Hi!
         \\
     ;
 

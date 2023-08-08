@@ -83,6 +83,9 @@ pub const Stmt = union(enum) {
         switch (stmt.*) {
             .block => |block| owning_alctr.free(block.statements),
             .func => |f| {
+                for (f.params) |t| {
+                    owning_alctr.free(t.lexeme);
+                }
                 owning_alctr.free(f.params);
                 owning_alctr.free(f.body);
             },
@@ -199,9 +202,21 @@ pub const Pool = struct {
 
     pub fn addFunctionStmt(pool: *Pool, name: lex.Token, params: []lex.Token, body: []StmtIndex) Handle {
         pool.stmts.append(undefined) catch @panic("OOM");
+
+        // clone param text
+        var cloned_params = std.ArrayList(lex.Token).init(pool.alctr);
+        defer cloned_params.deinit();
+        for (params) |p| {
+            cloned_params.append(.{
+                .typ = p.typ,
+                .lexeme = pool.alctr.dupe(u8, p.lexeme) catch @panic("OOM"),
+                .line = p.line,
+            }) catch @panic("OOM");
+        }
+
         pool.stmts.items[pool.stmts.items.len - 1] = .{ .func = .{
             .name = name,
-            .params = params,
+            .params = cloned_params.toOwnedSlice() catch @panic("OOM"),
             .body = body,
         } };
         return pool.lastStmt();
@@ -431,7 +446,7 @@ pub const Parser = struct {
 
         var body = try p.blockContents();
 
-        return p.pool.addFunctionStmt(name, params.toOwnedSlice() catch @panic("OOM"), body);
+        return p.pool.addFunctionStmt(name, params.items, body);
     }
 
     fn var_decl(p: *Parser) Error!Pool.Handle {
