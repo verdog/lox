@@ -379,6 +379,10 @@ pub const Interpreter = struct {
                 intr.current_env.define(fun.name.lexeme, function);
                 return;
             },
+            .ret => |ret| {
+                _ = ret;
+                unreachable;
+            },
         }
     }
 

@@ -74,6 +74,7 @@ pub const Stmt = union(enum) {
     ifelse: IfStmt,
     whil: WhileStmt,
     func: FunctionStmt,
+    ret: ReturnStmt,
 
     pub fn acceptVisitor(stmt: Stmt, pool: Pool, ctx: anytype, visitor: anytype) VisitorResult(@TypeOf(visitor.*)) {
         return visitor.visit(stmt, pool, ctx);
@@ -130,6 +131,11 @@ const FunctionStmt = struct {
     name: lex.Token,
     params: []lex.Token,
     body: []Pool.StmtIndex,
+};
+
+const ReturnStmt = struct {
+    keyword: lex.Token,
+    value: ?Pool.ExprIndex,
 };
 
 pub const Pool = struct {
@@ -218,6 +224,15 @@ pub const Pool = struct {
             .name = name,
             .params = cloned_params.toOwnedSlice() catch @panic("OOM"),
             .body = body,
+        } };
+        return pool.lastStmt();
+    }
+
+    pub fn addReturnStmt(pool: *Pool, keyword: lex.Token, value: ?ExprIndex) Handle {
+        pool.stmts.append(undefined) catch @panic("OOM");
+        pool.stmts.items[pool.stmts.items.len - 1] = .{ .ret = .{
+            .keyword = keyword,
+            .value = value,
         } };
         return pool.lastStmt();
     }
@@ -363,13 +378,16 @@ pub const Parser = struct {
     //             |  if_stmt
     //             |  print_stmt
     //             |  while_stmt
+    //             |  return_stmt
     //             |  block ;
+    //
     // for_stmt    -> "for" "(" ( var_decl | exprStmt | ";" )
     //                expression? ";" expression? ")" statement ;
     // if_stmt     -> "if" "(" expression ")" statement ( "else" statement )? ;
     // expr_stmt   -> expression ";" ;
     // print_stmt  -> "print" expression ";" ;
     // while_stmt  -> "while" "(" expression ")" statement ;
+    // return_stmt -> "return" expression? ";" ;
     // block       -> "{" declaration* "}"
     //
     // expression  -> assignment ;
@@ -467,6 +485,7 @@ pub const Parser = struct {
         if (p.match(.@"if")) return try p.if_statement();
         if (p.match(.@"while")) return try p.while_statement();
         if (p.match(.@"for")) return try p.for_statement();
+        if (p.match(.@"return")) return try p.return_statement();
 
         return try p.expression_statement();
     }
@@ -596,6 +615,18 @@ pub const Parser = struct {
         }
 
         return body;
+    }
+
+    fn return_statement(p: *Parser) Error!Pool.Handle {
+        const keyword = p.previous();
+        var value: ?Pool.ExprIndex = null;
+        if (!p.check(.semicolon)) {
+            const value_h = try p.expression();
+            value = value_h.expr_index;
+        }
+        _ = try p.consume(.semicolon, "Expected ';' after return value");
+
+        return p.pool.addReturnStmt(keyword, value);
     }
 
     fn expression(p: *Parser) Error!Pool.Handle {
@@ -953,6 +984,15 @@ pub const AstPrinter = struct {
 
                 return std.fmt.allocPrint(ctx.alctr, "while({s})do({s})", .{ condition, do }) catch @panic("OOM");
             },
+            .ret => |ret| {
+                if (ret.value) |val| {
+                    const expr = pl.getExpr(val).acceptVisitor(pl, ctx, &self);
+                    defer ctx.alctr.free(expr);
+                    return std.fmt.allocPrint(ctx.alctr, "ret: {s}", .{expr}) catch @panic("OOM");
+                } else {
+                    return std.fmt.allocPrint(ctx.alctr, "ret: (nil)", .{}) catch @panic("OOM");
+                }
+            },
         }
     }
 };
@@ -1217,6 +1257,28 @@ test "parse test 16" {
     const expected_trees = &.{
         "function: foo(bar) len:1 {print: var:bar,}",
         "function: baz(bar) len:1 {expr: var:foo(var:bar),}",
+    };
+
+    try testParser(text, expected_trees);
+}
+
+test "parse test 17" {
+    const text =
+        \\fun foo() {
+        \\    return 1;
+        \\}
+        \\fun bar() {
+        \\return;
+        \\}
+        \\print foo();
+        \\print bar();
+    ;
+
+    const expected_trees = &.{
+        "function: foo() len:1 {ret: 1,}",
+        "function: bar() len:1 {ret: (nil),}",
+        "print: var:foo()",
+        "print: var:bar()",
     };
 
     try testParser(text, expected_trees);
