@@ -38,6 +38,7 @@ fn runFile(path: []const u8) !void {
     defer heap.free(bytes);
 
     var interpreter = interp.Interpreter.init(heap);
+    defer interpreter.deinit();
     _ = try run(bytes, &interpreter);
 }
 
@@ -78,7 +79,7 @@ fn run(bytes: []const u8, intr: *interp.Interpreter) !ux.Result {
     const stmts = try parser.parse();
     defer heap.free(stmts);
 
-    var ctx = .{ .alctr = heap, .out = ux.out };
+    var ctx = .{ .alctr = heap, .out = ux.stdout_unbuffered };
 
     for (stmts) |stmt| {
         var printer = prs.AstPrinter{};

@@ -61,7 +61,10 @@ const Callable = union(enum) {
                     env.define(p.lexeme, a);
                 }
 
-                try intr.executeBlock(pool, l.decl.func.body, ctx, env);
+                intr.executeBlock(pool, l.decl.func.body, ctx, env) catch |err| switch (err) {
+                    InterpreterError.EscapedReturn => return intr.last_returned_value,
+                    else => |e| return e,
+                };
                 return Value{ .nil = {} };
             },
         }
@@ -141,6 +144,7 @@ pub const InterpreterError = error{
     UndefinedVariable,
     NotCallable,
     WrongNumberOfArguments,
+    EscapedReturn,
     Unimplemented,
 };
 
@@ -148,6 +152,7 @@ pub const Interpreter = struct {
     alctr: std.mem.Allocator,
     root_env: *Environment,
     current_env: *Environment,
+    last_returned_value: Value = undefined,
 
     pub fn init(alctr: std.mem.Allocator) @This() {
         var root_env = alctr.create(Environment) catch @panic("OOM");
@@ -380,8 +385,13 @@ pub const Interpreter = struct {
                 return;
             },
             .ret => |ret| {
-                _ = ret;
-                unreachable;
+                if (ret.value) |val| {
+                    intr.last_returned_value = try intr.visitExpr(pl.getExpr(val), pl, ctx);
+                } else {
+                    intr.last_returned_value = Value{ .nil = {} };
+                }
+
+                return InterpreterError.EscapedReturn;
             },
         }
     }
@@ -1186,6 +1196,67 @@ test "interpreter: functions 3" {
 
     const output =
         \\Hi!
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: return values" {
+    const txt =
+        \\fun fib(n) {
+        \\  if (n <= 1) return n;
+        \\  return fib(n - 2) + fib(n - 1);
+        \\}
+        \\
+        \\for (var i = 0; i < 21; i = i + 1) {
+        \\  print fib(i);
+        \\}
+    ;
+
+    const output =
+        \\0.0000
+        \\1.0000
+        \\1.0000
+        \\2.0000
+        \\3.0000
+        \\5.0000
+        \\8.0000
+        \\13.0000
+        \\21.0000
+        \\34.0000
+        \\55.0000
+        \\89.0000
+        \\144.0000
+        \\233.0000
+        \\377.0000
+        \\610.0000
+        \\987.0000
+        \\1597.0000
+        \\2584.0000
+        \\4181.0000
+        \\6765.0000
+        \\
+    ;
+
+    try testInterpreterOutput(txt, output);
+}
+
+test "interpreter: return values 2" {
+    const txt =
+        \\fun foo() {
+        \\    return 1;
+        \\}
+        \\fun bar() {
+        \\return;
+        \\}
+        \\print foo();
+        \\print bar();
+    ;
+
+    const output =
+        \\1.0000
+        \\(nil)
         \\
     ;
 

@@ -1,6 +1,6 @@
 pub const in = std.io.getStdIn().reader();
 
-const stdout_unbuffered = std.io.getStdOut().writer();
+pub const stdout_unbuffered = std.io.getStdOut().writer();
 pub var stdout_buffer = std.io.bufferedWriter(stdout_unbuffered);
 pub const out = stdout_buffer.writer();
 
