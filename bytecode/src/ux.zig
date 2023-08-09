@@ -8,6 +8,5 @@ pub const stderr_unbuffered = std.io.getStdErr();
 pub const err = stderr_unbuffered.writer();
 
 const std = @import("std");
-const lex = @import("lex.zig");
 
 const log = std.log.scoped(.ux);
