@@ -1,5 +1,11 @@
 //! debug tools
 
+pub const DebugOptions = struct {
+    trace_execution: bool = true,
+};
+
+pub var options = DebugOptions{};
+
 pub const Disassembler = struct {
     const border_len = @as(usize, 60);
 
@@ -31,7 +37,7 @@ pub const Disassembler = struct {
         out.print("\n", .{}) catch @panic("OOM");
     }
 
-    fn instruction(ch: Chunk, offset: usize, out: anytype) usize {
+    pub fn instruction(ch: Chunk, offset: usize, out: anytype) usize {
         out.print("0x{x:0>4} ", .{offset}) catch @panic("OOM");
 
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {
@@ -59,14 +65,9 @@ pub const Disassembler = struct {
     fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
         const constant_byte = ch.code.items[offset + 1];
         out.print("{s: <12} {d: <3} '", .{ @tagName(opcode), constant_byte }) catch @panic("OOM");
-        value(ch.constants.items[constant_byte], out);
+        vl.print_value(ch.constants.items[constant_byte], out);
         out.print("'\n", .{}) catch @panic("OOM");
         return offset + 2;
-    }
-
-    // TODO: consider moving this to value.zig, like the book does.
-    fn value(val: Value, out: anytype) void {
-        out.print("{d}", .{val}) catch @panic("OOM");
     }
 };
 
@@ -150,6 +151,8 @@ test "disassembler header length: odd length name" {
 
 const std = @import("std");
 
+const vl = @import("value.zig");
+
 const OpCode = @import("chunk.zig").OpCode;
 const Chunk = @import("chunk.zig").Chunk;
-const Value = @import("value.zig").Value;
+const Value = vl.Value;

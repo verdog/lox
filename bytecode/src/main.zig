@@ -12,13 +12,11 @@ pub fn main() !void {
         const c = chunk.addConstant(1.1);
         chunk.writeOpCode(OpCode.constant, 123);
         chunk.write(@intCast(c), 123);
-        chunk.writeOpCode(OpCode.@"return", 124);
     }
     {
         const c = chunk.addConstant(2.2);
         chunk.writeOpCode(OpCode.constant, 125);
         chunk.write(@intCast(c), 125);
-        chunk.writeOpCode(OpCode.@"return", 125);
     }
     {
         const c = chunk.addConstant(3.3);
@@ -28,6 +26,9 @@ pub fn main() !void {
     }
 
     dbg.Disassembler.chunk(chunk, "test chunk", ux.out);
+
+    var vm = VM.init();
+    _ = vm.interpret(chunk, ux.out);
 }
 
 test "run all tests" {
@@ -44,6 +45,7 @@ const log = std.log.scoped(.main);
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
+const VM = @import("VM.zig");
 
 const ux = @import("ux.zig");
 const dbg = @import("debug.zig");
