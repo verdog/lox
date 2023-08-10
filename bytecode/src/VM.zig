@@ -59,6 +59,9 @@ fn run(vm: *VM, out: anytype) InterpretResult {
                 const constant = vm.read_constant();
                 vm.stack_push(constant);
             },
+            .negate => {
+                vm.stack_push(-vm.stack_pop());
+            },
             _ => return .runtime_error, // unknown opcode
         }
     }

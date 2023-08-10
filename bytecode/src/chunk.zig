@@ -3,6 +3,7 @@
 pub const OpCode = enum(u8) {
     @"return",
     constant,
+    negate,
     _,
 };
 

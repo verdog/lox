@@ -41,14 +41,17 @@ pub const Disassembler = struct {
         out.print("0x{x:0>4} ", .{offset}) catch @panic("OOM");
 
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {
-            out.print("   | ", .{}) catch @panic("OOM");
+            out.print(" |   ", .{}) catch @panic("OOM");
         } else {
             out.print("{d: >4} ", .{ch.lines.items[offset]}) catch @panic("OOM");
         }
 
         const opcode = @as(OpCode, @enumFromInt(ch.code.items[offset]));
         switch (opcode) {
-            .@"return" => return simple_inst(opcode, offset, out),
+            .@"return",
+            .negate,
+            => return simple_inst(opcode, offset, out),
+
             .constant => return constant_inst(opcode, ch, offset, out),
             _ => {
                 out.print("Unknown opcode: {x}\n", .{ch.code.items[offset]}) catch @panic("OOM");

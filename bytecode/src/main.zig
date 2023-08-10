@@ -22,6 +22,7 @@ pub fn main() !void {
         const c = chunk.addConstant(3.3);
         chunk.writeOpCode(OpCode.constant, 127);
         chunk.write(@intCast(c), 127);
+        chunk.writeOpCode(OpCode.negate, 127);
         chunk.writeOpCode(OpCode.@"return", 128);
     }
 
