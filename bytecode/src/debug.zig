@@ -50,6 +50,10 @@ pub const Disassembler = struct {
         switch (opcode) {
             .@"return",
             .negate,
+            .add,
+            .subtract,
+            .multiply,
+            .divide,
             => return simple_inst(opcode, offset, out),
 
             .constant => return constant_inst(opcode, ch, offset, out),

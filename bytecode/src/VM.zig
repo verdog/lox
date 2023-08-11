@@ -62,6 +62,21 @@ fn run(vm: *VM, out: anytype) InterpretResult {
             .negate => {
                 vm.stack_push(-vm.stack_pop());
             },
+            .add,
+            .subtract,
+            .multiply,
+            .divide,
+            => |op| {
+                const b = vm.stack_pop();
+                const a = vm.stack_pop();
+                vm.stack_push(switch (op) {
+                    .add => a + b,
+                    .subtract => a - b,
+                    .multiply => a * b,
+                    .divide => a / b,
+                    else => unreachable,
+                });
+            },
             _ => return .runtime_error, // unknown opcode
         }
     }

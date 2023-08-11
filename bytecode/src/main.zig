@@ -8,23 +8,25 @@ pub fn main() !void {
     var chunk = Chunk.init(heap);
     defer chunk.deinit();
 
-    {
-        const c = chunk.addConstant(1.1);
-        chunk.writeOpCode(OpCode.constant, 123);
-        chunk.write(@intCast(c), 123);
-    }
-    {
-        const c = chunk.addConstant(2.2);
-        chunk.writeOpCode(OpCode.constant, 125);
-        chunk.write(@intCast(c), 125);
-    }
-    {
-        const c = chunk.addConstant(3.3);
-        chunk.writeOpCode(OpCode.constant, 127);
-        chunk.write(@intCast(c), 127);
-        chunk.writeOpCode(OpCode.negate, 127);
-        chunk.writeOpCode(OpCode.@"return", 128);
-    }
+    var constant = chunk.addConstant(1.2);
+    chunk.writeOpCode(.constant, 123);
+    chunk.write(constant, 123);
+
+    constant = chunk.addConstant(3.4);
+    chunk.writeOpCode(.constant, 123);
+    chunk.write(constant, 123);
+
+    chunk.writeOpCode(.add, 123);
+
+    constant = chunk.addConstant(5.6);
+    chunk.writeOpCode(.constant, 123);
+    chunk.write(constant, 123);
+
+    chunk.writeOpCode(.divide, 123);
+
+    chunk.writeOpCode(.negate, 123);
+
+    chunk.writeOpCode(.@"return", 123);
 
     dbg.Disassembler.chunk(chunk, "test chunk", ux.out);
 

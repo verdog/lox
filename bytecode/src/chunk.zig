@@ -4,6 +4,10 @@ pub const OpCode = enum(u8) {
     @"return",
     constant,
     negate,
+    add,
+    subtract,
+    multiply,
+    divide,
     _,
 };
 
@@ -37,11 +41,10 @@ pub const Chunk = struct {
         return c.write(@intFromEnum(opcode), line);
     }
 
-    // TODO consider if this should be returning a u8, since the constant values in
-    // bytecode can only be a byte long.
-    pub fn addConstant(c: *Chunk, val: value.Value) usize {
+    pub fn addConstant(c: *Chunk, val: value.Value) u8 {
         c.constants.append(val) catch @panic("OOM");
-        return c.constants.items.len - 1;
+        std.debug.assert(c.constants.items.len < std.math.maxInt(u8));
+        return @intCast(c.constants.items.len - 1);
     }
 };
 
