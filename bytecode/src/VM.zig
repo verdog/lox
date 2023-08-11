@@ -10,7 +10,6 @@ pub const InterpretResult = enum {
 
 const stack_max = 256;
 
-chunk: Chunk = undefined,
 ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
@@ -20,14 +19,21 @@ pub fn init() VM {
 }
 
 pub fn deinit(vm: VM) void {
-    vm.chunk.deinit(); // ?
+    _ = vm;
+    // vm.chunk.deinit(); // ?
 }
 
-pub fn interpret(vm: *VM, ch: Chunk, out: anytype) InterpretResult {
-    vm.chunk = ch;
-    vm.ip = 0;
-    vm.stack_reset();
-    return vm.run(out);
+pub fn interpret(vm: *VM, source_text: []const u8, out: anytype) InterpretResult {
+    _ = vm;
+    _ = out;
+
+    cpl.compile(source_text);
+    return .ok;
+
+    // TODO hook up interpreter again
+    // vm.ip = 0;
+    // vm.stack_reset();
+    // return vm.run(out);
 }
 
 fn run(vm: *VM, out: anytype) InterpretResult {
@@ -111,6 +117,7 @@ const std = @import("std");
 
 const vl = @import("value.zig");
 const dbg = @import("debug.zig");
+const cpl = @import("compiler.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;

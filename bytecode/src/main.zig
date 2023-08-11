@@ -3,35 +3,73 @@ pub const std_options = struct {
 };
 
 pub fn main() !void {
+    defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
     defer ux.stdout_buffer.flush() catch {};
 
-    var chunk = Chunk.init(heap);
-    defer chunk.deinit();
+    if (std.os.argv.len > 2) {
+        try ux.out.print("Usage: {s} <script>\n", .{std.os.argv[0]});
+        log.err("invalid arguments {s}", .{std.os.argv});
+        std.os.exit(64);
+    } else if (std.os.argv.len == 2) {
+        try runFile(std.mem.sliceTo(std.os.argv[1], '\x00'));
+    } else {
+        try runPrompt();
+    }
+}
 
-    var constant = chunk.addConstant(1.2);
-    chunk.writeOpCode(.constant, 123);
-    chunk.write(constant, 123);
+fn runFile(path: []const u8) !void {
+    const file = std.fs.cwd().openFile(path, .{}) catch |e| switch (e) {
+        error.FileNotFound => {
+            log.err("file not found: {s}", .{path});
+            return e;
+        },
+        else => return e,
+    };
+    defer file.close();
 
-    constant = chunk.addConstant(3.4);
-    chunk.writeOpCode(.constant, 123);
-    chunk.write(constant, 123);
-
-    chunk.writeOpCode(.add, 123);
-
-    constant = chunk.addConstant(5.6);
-    chunk.writeOpCode(.constant, 123);
-    chunk.write(constant, 123);
-
-    chunk.writeOpCode(.divide, 123);
-
-    chunk.writeOpCode(.negate, 123);
-
-    chunk.writeOpCode(.@"return", 123);
-
-    dbg.Disassembler.chunk(chunk, "test chunk", ux.out);
+    const bytes = file.readToEndAlloc(heap, 1024 * 1024 * 1024) catch |e| switch (e) {
+        error.FileTooBig => {
+            log.err("file too big: {s}, file size must be less than 1GB", .{path});
+            return e;
+        },
+        else => return e,
+    };
+    defer heap.free(bytes);
 
     var vm = VM.init();
-    _ = vm.interpret(chunk, ux.out);
+    defer vm.deinit();
+
+    // TODO convert these errors to zig errors
+    const result = vm.interpret(bytes, ux.out);
+    switch (result) {
+        .compile_error => std.os.exit(65),
+        .runtime_error => std.os.exit(70),
+        .ok => std.os.exit(0),
+    }
+}
+
+fn runPrompt() !void {
+    var input_buffer = [_]u8{'\x00'} ** 1024;
+
+    var vm = VM.init();
+    defer vm.deinit();
+
+    while (true) {
+        try ux.out.print("> ", .{});
+        try ux.stdout_buffer.flush();
+        const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
+        if (maybe_line) |line| {
+            // TODO convert these errors to zig errors
+            const result = vm.interpret(line, ux.out);
+            switch (result) {
+                .compile_error => std.os.exit(65),
+                .runtime_error => std.os.exit(70),
+                .ok => {},
+            }
+        } else {
+            break;
+        }
+    }
 }
 
 test "run all tests" {

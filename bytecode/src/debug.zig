@@ -78,50 +78,6 @@ pub const Disassembler = struct {
     }
 };
 
-test "disassemble trivial chunk" {
-    var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-    chunk.writeOpCode(OpCode.@"return", 123);
-
-    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer out_buf.deinit();
-    var out = out_buf.writer();
-
-    Disassembler.chunk(chunk, "test chunk", out);
-
-    // TODO finalize disassembler output
-
-    // const expected =
-    //     \\xxx
-    // ;
-    //
-    // try std.testing.expectEqualStrings(expected, out_buf.items);
-}
-
-test "disassemble trivial chunk 2" {
-    var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-
-    const c = chunk.addConstant(1.2);
-    chunk.writeOpCode(OpCode.constant, 123);
-    chunk.write(@intCast(c), 123);
-    chunk.writeOpCode(OpCode.@"return", 124);
-
-    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer out_buf.deinit();
-    var out = out_buf.writer();
-
-    Disassembler.chunk(chunk, "test chunk", out);
-
-    // TODO finalize disassembler output
-
-    // const expected =
-    //     \\xxx
-    // ;
-    //
-    // try std.testing.expectEqualStrings(expected, out_buf.items);
-}
-
 test "disassembler header length: even length name" {
     var chunk = Chunk.init(std.testing.allocator);
     defer chunk.deinit();
