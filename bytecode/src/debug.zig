@@ -97,7 +97,11 @@ pub const Disassembler = struct {
                 switch (o.typ) {
                     .string => {
                         const buf = val.as_string_buf();
-                        out.print("{s: <5}", .{buf}) catch unreachable;
+                        if (buf.len <= 5) {
+                            out.print("{s: <5}", .{buf}) catch unreachable;
+                        } else {
+                            out.print(" ... ", .{}) catch unreachable;
+                        }
                     },
                 }
             },
