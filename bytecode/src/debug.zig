@@ -83,7 +83,14 @@ pub const Disassembler = struct {
         out.print("{s: <8} {d: <3} ", .{ @tagName(opcode), constant_byte }) catch unreachable;
         const val = ch.constants.items[constant_byte];
         switch (val) {
-            .number => |n| out.print("{d: <5}", .{n}) catch @panic("OOM"),
+            .number => |n| {
+                const digits = @floor(std.math.log10(n)) + 1;
+                if (digits <= 5) {
+                    out.print("{d: <5}", .{n}) catch unreachable;
+                } else {
+                    out.print(" ... ", .{}) catch unreachable;
+                }
+            },
             .booln => |b| out.print("{: <5}", .{b}) catch @panic("OOM"),
             .nil => out.print("(nil)", .{}) catch @panic("OOM"),
         }
