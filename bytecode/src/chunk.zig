@@ -19,24 +19,25 @@ pub const OpCode = enum(u8) {
 };
 
 pub const Chunk = struct {
-    alctr: std.mem.Allocator,
     code: std.ArrayList(u8),
     lines: std.ArrayList(u32),
     constants: std.ArrayList(value.Value),
 
     pub fn init(alctr: std.mem.Allocator) Chunk {
         return .{
-            .alctr = alctr,
             .code = std.ArrayList(u8).init(alctr),
             .lines = std.ArrayList(u32).init(alctr),
             .constants = std.ArrayList(value.Value).init(alctr),
         };
     }
 
-    pub fn deinit(c: Chunk) void {
-        c.code.deinit();
-        c.lines.deinit();
-        c.constants.deinit();
+    pub fn deinit(ch: Chunk, alctr: std.mem.Allocator) void {
+        ch.code.deinit();
+        ch.lines.deinit();
+        for (ch.constants.items) |c| {
+            c.deinit(alctr);
+        }
+        ch.constants.deinit();
     }
 
     pub fn write(c: *Chunk, data: u8, line: u32) void {
@@ -54,18 +55,6 @@ pub const Chunk = struct {
         return @intCast(c.constants.items.len - 1);
     }
 };
-
-test "compile test: construst/destruct a chunk" {
-    const chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-}
-
-test "compile test: write a byte to a chunk" {
-    var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-    chunk.write(@intFromEnum(OpCode.@"return"), 123);
-    chunk.writeOpCode(OpCode.@"return", 123);
-}
 
 const std = @import("std");
 

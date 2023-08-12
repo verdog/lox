@@ -8,7 +8,7 @@ pub const DebugOptions = struct {
 pub var options = DebugOptions{};
 
 pub const Disassembler = struct {
-    const border_len = @as(usize, 60);
+    const border_len = @as(usize, 80);
 
     pub fn chunk(ch: Chunk, name: []const u8, out: anytype) void {
         border(name, out);
@@ -91,8 +91,16 @@ pub const Disassembler = struct {
                     out.print(" ... ", .{}) catch unreachable;
                 }
             },
-            .booln => |b| out.print("{: <5}", .{b}) catch @panic("OOM"),
-            .nil => out.print("(nil)", .{}) catch @panic("OOM"),
+            .booln => |b| out.print("{: <5}", .{b}) catch unreachable,
+            .nil => out.print("(nil)", .{}) catch unreachable,
+            .obj => |o| {
+                switch (o.typ) {
+                    .string => {
+                        const buf = val.as_string_buf();
+                        out.print("{s: <5}", .{buf}) catch unreachable;
+                    },
+                }
+            },
         }
         return offset + 2;
     }
@@ -100,7 +108,7 @@ pub const Disassembler = struct {
 
 test "disassembler header length: even length name" {
     var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
+    defer chunk.deinit(std.testing.allocator);
     chunk.writeOpCode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);
@@ -117,7 +125,7 @@ test "disassembler header length: even length name" {
 
 test "disassembler header length: odd length name" {
     var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
+    defer chunk.deinit(std.testing.allocator);
     chunk.writeOpCode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);

@@ -37,7 +37,7 @@ fn runFile(path: []const u8) !void {
     defer heap.free(bytes);
 
     var vm = VM.init();
-    defer vm.deinit();
+    defer vm.deinit(heap);
 
     // TODO convert these errors to zig errors
     const result = vm.interpret(bytes, heap, ux.out);
@@ -54,7 +54,7 @@ fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 1024;
 
     var vm = VM.init();
-    defer vm.deinit();
+    defer vm.deinit(heap);
 
     while (true) {
         try ux.out.print("> ", .{});

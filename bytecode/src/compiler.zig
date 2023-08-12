@@ -279,7 +279,7 @@ fn Parser(comptime Context: type) type {
                 .greater => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
                 .greater_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
                 // .identifier => {},
-                // .string => {},
+                .string => .{ .prefix = P.string, .infix = P.unimplemented, .precedence = .none },
                 .number => .{ .prefix = P.number, .infix = P.unimplemented, .precedence = .none },
                 // .@"and" => {},
                 // .class => {},
@@ -348,6 +348,10 @@ fn Parser(comptime Context: type) type {
                 .nil => emit_byte(@intFromEnum(OpCode.nil)),
                 else => unreachable,
             }
+        }
+
+        pub fn string(p: *P) void {
+            emit_constant(vl.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1], p.ctx.alctr));
         }
 
         pub fn grouping(p: *P) void {
@@ -468,9 +472,9 @@ fn emit_constant(value: Value) void {
     emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
 }
 
-pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype) bool {
+pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype, alctr: std.mem.Allocator) bool {
     var s = Scanner.init(source_text);
-    const ctx = .{ .out = err_printer };
+    const ctx = .{ .out = err_printer, .alctr = alctr };
     var p = Parser(@TypeOf(ctx)).init(s, ctx);
 
     current_chunk = ch;
@@ -490,6 +494,7 @@ pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype) bool {
     return !p.had_error;
 }
 
+const vl = @import("value.zig");
 const ux = @import("ux.zig");
 const dbg = @import("debug.zig");
 

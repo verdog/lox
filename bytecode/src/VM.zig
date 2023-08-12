@@ -14,35 +14,44 @@ chunk: Chunk = undefined,
 ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
+objs: ?*vl.Obj = undefined,
 
 pub fn init() VM {
     return .{};
 }
 
-pub fn deinit(vm: VM) void {
-    _ = vm;
-    // vm.chunk.deinit(); // ?
+pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
+    var m_obj: ?*vl.Obj = vm.objs;
+    while (m_obj) |obj| {
+        const next = obj.next;
+        obj.deinit(alctr);
+        switch (obj.typ) {
+            .string => alctr.destroy(@fieldParentPtr(vl.ObjString, "obj", obj)),
+        }
+        m_obj = next;
+    }
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
     var ch = Chunk.init(alctr);
-    defer ch.deinit();
+    defer ch.deinit(alctr);
 
-    if (!cpl.compile(source_text, &ch, out)) {
+    if (!cpl.compile(source_text, &ch, out, alctr)) {
         return .compile_error;
     }
 
     vm.chunk = ch;
     vm.ip = 0;
     vm.stack_reset();
+    vm.objs = null;
 
     if (dbg.options.trace_execution) {
         out.print("Execution trace:\n", .{}) catch unreachable;
     }
-    return vm.run(out);
+    return vm.run(alctr, out);
 }
 
-fn run(vm: *VM, out: anytype) InterpretResult {
+fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
     while (true) {
         if (dbg.options.trace_execution) {
             // trace instruction
@@ -95,23 +104,41 @@ fn run(vm: *VM, out: anytype) InterpretResult {
             .less,
             .greater,
             => |op| {
-                if (std.meta.activeTag(vm.stack_peek(0)) != .number or
-                    std.meta.activeTag(vm.stack_peek(1)) != .number)
+                if (op == .add and vm.stack_peek(0).is_string() and vm.stack_peek(1).is_string()) {
+                    // concatenate strings
+                    const b = vm.stack_pop().as_string();
+                    const a = vm.stack_pop().as_string();
+
+                    const new_len = a.buf.len + b.buf.len;
+                    const new_chars = alctr.alloc(u8, new_len) catch @panic("OOM");
+                    @memcpy(new_chars[0..a.buf.len], a.buf);
+                    @memcpy(new_chars[a.buf.len..], b.buf);
+
+                    const new_value = vl.take_string_value(new_chars, alctr);
+                    vm.track_obj(new_value.obj);
+                    vm.stack_push(new_value);
+                } else if (std.meta.activeTag(vm.stack_peek(0)) == .number and
+                    std.meta.activeTag(vm.stack_peek(1)) == .number)
                 {
-                    vm.print_runtime_error(out, "Operands must be numbers.", .{});
+                    const b = vm.stack_pop();
+                    const a = vm.stack_pop();
+                    vm.stack_push(switch (op) {
+                        .add => Value{ .number = a.number + b.number },
+                        .subtract => Value{ .number = a.number - b.number },
+                        .multiply => Value{ .number = a.number * b.number },
+                        .divide => Value{ .number = a.number / b.number },
+                        .less => Value{ .booln = a.number < b.number },
+                        .greater => Value{ .booln = a.number > b.number },
+                        else => unreachable,
+                    });
+                } else {
+                    if (op == .add) {
+                        vm.print_runtime_error(out, "Operands must be numbers or strings.", .{});
+                    } else {
+                        vm.print_runtime_error(out, "Operands must be numbers.", .{});
+                    }
                     return .runtime_error;
                 }
-                const b = vm.stack_pop();
-                const a = vm.stack_pop();
-                vm.stack_push(switch (op) {
-                    .add => Value{ .number = a.number + b.number },
-                    .subtract => Value{ .number = a.number - b.number },
-                    .multiply => Value{ .number = a.number * b.number },
-                    .divide => Value{ .number = a.number / b.number },
-                    .less => Value{ .booln = a.number < b.number },
-                    .greater => Value{ .booln = a.number > b.number },
-                    else => unreachable,
-                });
             },
             .equal => {
                 const b = vm.stack_pop();
@@ -150,6 +177,11 @@ fn stack_pop(vm: *VM) Value {
 
 fn stack_peek(vm: *VM, distance: usize) Value {
     return vm.stack[vm.stack_top - 1 - distance];
+}
+
+fn track_obj(vm: *VM, obj: *vl.Obj) void {
+    obj.next = vm.objs;
+    vm.objs = obj;
 }
 
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
