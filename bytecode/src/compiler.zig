@@ -270,31 +270,31 @@ fn Parser(comptime Context: type) type {
                 // .semicolon => {},
                 .slash => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
                 .star => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
-                // .bang => {},
-                // .bang_eql => {},
+                .bang => .{ .prefix = P.unary, .infix = P.unimplemented, .precedence = .none },
+                .bang_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .equality },
                 // .eql => {},
-                // .eql_eql => {},
-                // .less => {},
-                // .less_eql => {},
-                // .greater => {},
-                // .greater_eql => {},
+                .eql_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .equality },
+                .less => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
+                .less_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
+                .greater => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
+                .greater_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
                 // .identifier => {},
                 // .string => {},
                 .number => .{ .prefix = P.number, .infix = P.unimplemented, .precedence = .none },
                 // .@"and" => {},
                 // .class => {},
                 // .@"else" => {},
-                // .false => {},
+                .false => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
                 // .fun => {},
                 // .@"for" => {},
                 // .@"if" => {},
-                // .nil => {},
+                .nil => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
                 // .@"or" => {},
                 // .print => {},
                 // .@"return" => {},
                 // .super => {},
                 // .this => {},
-                // .true => {},
+                .true => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
                 // .@"var" => {},
                 // .@"while" => {},
                 // .@"error" => {},
@@ -337,8 +337,17 @@ fn Parser(comptime Context: type) type {
         }
 
         pub fn number(p: *P) void {
-            const value = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable;
+            const value: Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
             emit_constant(value);
+        }
+
+        pub fn literal(p: *P) void {
+            switch (p.previous.typ) {
+                .false => emit_byte(@intFromEnum(OpCode.false)),
+                .true => emit_byte(@intFromEnum(OpCode.true)),
+                .nil => emit_byte(@intFromEnum(OpCode.nil)),
+                else => unreachable,
+            }
         }
 
         pub fn grouping(p: *P) void {
@@ -355,6 +364,7 @@ fn Parser(comptime Context: type) type {
             // negate it
             switch (typ) {
                 .minus => emit_byte(@intFromEnum(OpCode.negate)),
+                .bang => emit_byte(@intFromEnum(OpCode.not)),
                 else => unreachable,
             }
         }
@@ -369,6 +379,12 @@ fn Parser(comptime Context: type) type {
                 .minus => emit_byte(@intFromEnum(OpCode.subtract)),
                 .star => emit_byte(@intFromEnum(OpCode.multiply)),
                 .slash => emit_byte(@intFromEnum(OpCode.divide)),
+                .bang_eql => emit_ops(.equal, .not),
+                .eql_eql => emit_op(.equal),
+                .greater => emit_op(.greater),
+                .greater_eql => emit_ops(.less, .not),
+                .less => emit_op(.less),
+                .less_eql => emit_ops(.greater, .not),
                 else => unreachable,
             }
         }
@@ -440,6 +456,14 @@ fn emit_bytes(b1: u8, b2: u8) void {
     current_chunk.write(b2, 1);
 }
 
+fn emit_op(o: OpCode) void {
+    emit_byte(@intFromEnum(o));
+}
+
+fn emit_ops(o1: OpCode, o2: OpCode) void {
+    emit_bytes(@intFromEnum(o1), @intFromEnum(o2));
+}
+
 fn emit_constant(value: Value) void {
     emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
 }
@@ -460,7 +484,7 @@ pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype) bool {
     emit_byte(@intFromEnum(OpCode.@"return"));
 
     if (dbg.options.print_code and !p.had_error) {
-        dbg.Disassembler.chunk(current_chunk.*, "result", err_printer);
+        dbg.Disassembler.chunk(current_chunk.*, "bytecode", err_printer);
     }
 
     return !p.had_error;

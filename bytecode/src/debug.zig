@@ -16,6 +16,7 @@ pub const Disassembler = struct {
         var offset = @as(usize, 0);
         while (offset < ch.code.items.len) {
             offset = instruction(ch, offset, out);
+            out.print("\n", .{}) catch unreachable;
         }
 
         border(name, out);
@@ -26,25 +27,25 @@ pub const Disassembler = struct {
         var decor = @as(usize, 0);
 
         while (decor < decor_len) : (decor += 1) {
-            out.print("-", .{}) catch @panic("OOM");
+            out.print("-", .{}) catch unreachable;
         }
-        out.print(" {s} ", .{name}) catch @panic("OOM");
+        out.print(" {s} ", .{name}) catch unreachable;
 
         decor = 0;
         if (name.len & 1 == 1) decor_len -= 1;
         while (decor < decor_len) : (decor += 1) {
-            out.print("-", .{}) catch @panic("OOM");
+            out.print("-", .{}) catch unreachable;
         }
-        out.print("\n", .{}) catch @panic("OOM");
+        out.print("\n", .{}) catch unreachable;
     }
 
     pub fn instruction(ch: Chunk, offset: usize, out: anytype) usize {
-        out.print("0x{x:0>4} ", .{offset}) catch @panic("OOM");
+        out.print("0x{x:0>4} ", .{offset}) catch unreachable;
 
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {
-            out.print(" |    ", .{}) catch @panic("OOM");
+            out.print(" |    ", .{}) catch unreachable;
         } else {
-            out.print(" {d: <4} ", .{ch.lines.items[offset]}) catch @panic("OOM");
+            out.print(" {d: <4} ", .{ch.lines.items[offset]}) catch unreachable;
         }
 
         const opcode = @as(OpCode, @enumFromInt(ch.code.items[offset]));
@@ -55,26 +56,37 @@ pub const Disassembler = struct {
             .subtract,
             .multiply,
             .divide,
+            .nil,
+            .true,
+            .false,
+            .not,
+            .equal,
+            .less,
+            .greater,
             => return simple_inst(opcode, offset, out),
 
             .constant => return constant_inst(opcode, ch, offset, out),
             _ => {
-                out.print("Unknown opcode: {x}\n", .{ch.code.items[offset]}) catch @panic("OOM");
+                out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;
             },
         }
     }
 
     fn simple_inst(opcode: OpCode, offset: usize, out: anytype) usize {
-        out.print("{s}\n", .{@tagName(opcode)}) catch @panic("OOM");
+        out.print("{s: <18}", .{@tagName(opcode)}) catch unreachable;
         return offset + 1;
     }
 
     fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
         const constant_byte = ch.code.items[offset + 1];
-        out.print("{s: <12} {d: <3} '", .{ @tagName(opcode), constant_byte }) catch @panic("OOM");
-        vl.print_value(ch.constants.items[constant_byte], out);
-        out.print("'\n", .{}) catch @panic("OOM");
+        out.print("{s: <8} {d: <3} ", .{ @tagName(opcode), constant_byte }) catch unreachable;
+        const val = ch.constants.items[constant_byte];
+        switch (val) {
+            .number => |n| out.print("{d: <5}", .{n}) catch @panic("OOM"),
+            .booln => |b| out.print("{: <5}", .{b}) catch @panic("OOM"),
+            .nil => out.print("(nil)", .{}) catch @panic("OOM"),
+        }
         return offset + 2;
     }
 };

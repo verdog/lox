@@ -8,6 +8,13 @@ pub const OpCode = enum(u8) {
     subtract,
     multiply,
     divide,
+    nil,
+    true,
+    false,
+    not,
+    equal,
+    greater,
+    less,
     _,
 };
 
