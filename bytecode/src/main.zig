@@ -40,7 +40,9 @@ fn runFile(path: []const u8) !void {
     defer vm.deinit();
 
     // TODO convert these errors to zig errors
-    const result = vm.interpret(bytes, ux.out);
+    const result = vm.interpret(bytes, heap, ux.out);
+    // TODO remove this flush
+    ux.stdout_buffer.flush() catch {};
     switch (result) {
         .compile_error => std.os.exit(65),
         .runtime_error => std.os.exit(70),
@@ -60,7 +62,9 @@ fn runPrompt() !void {
         const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
             // TODO convert these errors to zig errors
-            const result = vm.interpret(line, ux.out);
+            const result = vm.interpret(line, heap, ux.out);
+            // TODO remove this flush
+            ux.stdout_buffer.flush() catch {};
             switch (result) {
                 .compile_error => std.os.exit(65),
                 .runtime_error => std.os.exit(70),

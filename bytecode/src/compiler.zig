@@ -225,32 +225,253 @@ const Token = struct {
     line: i32,
 };
 
-pub fn compile(source_text: []const u8) void {
-    var scanner = Scanner.init(source_text);
+fn Parser(comptime Context: type) type {
+    return struct {
+        scanner: Scanner,
+        previous: Token,
+        current: Token,
+        had_error: bool,
+        in_panic_mode: bool,
+        ctx: Context,
 
-    var line = @as(i32, -1);
-    while (true) {
-        const token = scanner.scan_token();
+        const P = @This();
 
-        if (token.line != line) {
-            std.debug.print("{d: >4} ", .{token.line});
-        } else {
-            std.debug.print("   | ", .{});
+        const Precedence = enum(u8) {
+            none,
+            assignment, // =
+            @"or", // or
+            @"and", // and
+            equality, // == !=
+            comparison, // < > <= >=
+            term, // + -
+            factor, // * /
+            unary, // ! -
+            call, // . ()
+            primary,
+        };
+
+        const Rule = struct {
+            prefix: *const fn (p: *P) void,
+            infix: *const fn (p: *P) void,
+            precedence: Precedence,
+        };
+
+        fn get_rule(p: P, typ: Token.Type) Rule {
+            _ = p;
+            return switch (typ) {
+                .lparen => .{ .prefix = P.grouping, .infix = P.unimplemented, .precedence = .none },
+                // .rparen => {},
+                // .lbrace => {},
+                // .rbrace => {},
+                // .comma => {},
+                // .dot => {},
+                .minus => .{ .prefix = P.unary, .infix = P.binary, .precedence = .term },
+                .plus => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .term },
+                // .semicolon => {},
+                .slash => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
+                .star => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
+                // .bang => {},
+                // .bang_eql => {},
+                // .eql => {},
+                // .eql_eql => {},
+                // .less => {},
+                // .less_eql => {},
+                // .greater => {},
+                // .greater_eql => {},
+                // .identifier => {},
+                // .string => {},
+                .number => .{ .prefix = P.number, .infix = P.unimplemented, .precedence = .none },
+                // .@"and" => {},
+                // .class => {},
+                // .@"else" => {},
+                // .false => {},
+                // .fun => {},
+                // .@"for" => {},
+                // .@"if" => {},
+                // .nil => {},
+                // .@"or" => {},
+                // .print => {},
+                // .@"return" => {},
+                // .super => {},
+                // .this => {},
+                // .true => {},
+                // .@"var" => {},
+                // .@"while" => {},
+                // .@"error" => {},
+                // .eof => {},
+                else => .{ .prefix = P.unimplemented, .infix = P.unimplemented, .precedence = .none },
+            };
         }
 
-        std.debug.print("{s: >10} {s: <16} |", .{ @tagName(token.typ), token.lexeme });
-
-        if (token.line != line) {
-            const source_line = std.mem.sliceTo(source_text[scanner.start..], '\n');
-            std.debug.print(" {s}", .{source_line});
-            line = token.line;
+        pub fn init(scanner: Scanner, ctx: Context) P {
+            return .{
+                .scanner = scanner,
+                .previous = undefined,
+                .current = undefined,
+                .had_error = false,
+                .in_panic_mode = false,
+                .ctx = ctx,
+            };
         }
 
-        std.debug.print("\n", .{});
+        pub fn advance(p: *P) void {
+            p.previous = p.current;
 
-        if (token.typ == .eof) break;
-    }
+            while (true) {
+                p.current = p.scanner.scan_token();
+                if (p.current.typ != .@"error") break;
+                p.print_error_at_current(p.current.lexeme);
+            }
+        }
+
+        pub fn consume(p: *P, typ: Token.Type, message: []const u8) void {
+            if (p.current.typ == typ) {
+                p.advance();
+                return;
+            }
+            p.print_error_at_current(message);
+        }
+
+        pub fn expression(p: *P) void {
+            p.parse_precedence(.assignment);
+        }
+
+        pub fn number(p: *P) void {
+            const value = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable;
+            emit_constant(value);
+        }
+
+        pub fn grouping(p: *P) void {
+            p.expression();
+            p.consume(.rparen, "Expected ')' after expression.");
+        }
+
+        pub fn unary(p: *P) void {
+            const typ = p.previous.typ;
+
+            // compile the operand
+            p.parse_precedence(.unary);
+
+            // negate it
+            switch (typ) {
+                .minus => emit_byte(@intFromEnum(OpCode.negate)),
+                else => unreachable,
+            }
+        }
+
+        pub fn binary(p: *P) void {
+            const typ = p.previous.typ;
+            const rule = p.get_rule(typ);
+            p.parse_precedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
+
+            switch (typ) {
+                .plus => emit_byte(@intFromEnum(OpCode.add)),
+                .minus => emit_byte(@intFromEnum(OpCode.subtract)),
+                .star => emit_byte(@intFromEnum(OpCode.multiply)),
+                .slash => emit_byte(@intFromEnum(OpCode.divide)),
+                else => unreachable,
+            }
+        }
+
+        // used to fill in unimplemented entries in the rules table
+        fn unimplemented(p: *P) void {
+            _ = p;
+            @panic("unimplemented");
+        }
+
+        pub fn parse_precedence(p: *P, precedence: Precedence) void {
+            {
+                p.advance();
+                const rule = p.get_rule(p.previous.typ);
+                if (rule.prefix == &P.unimplemented) {
+                    p.print_error("Expected expression.");
+                    return;
+                }
+                rule.prefix(p);
+            }
+
+            while (@intFromEnum(precedence) <= @intFromEnum(p.get_rule(p.current.typ).precedence)) {
+                p.advance();
+                const rule = p.get_rule(p.previous.typ);
+                rule.infix(p);
+            }
+        }
+
+        fn print_error(p: *P, message: []const u8) void {
+            p.print_error_at(p.previous, message);
+        }
+
+        fn print_error_at_current(p: *P, message: []const u8) void {
+            p.print_error_at(p.current, message);
+        }
+
+        fn print_error_at(p: *P, token: Token, message: []const u8) void {
+            // TODO hoist the flag setting out of an otherwise side effect free print fn
+            if (p.in_panic_mode) return;
+            p.had_error = true;
+            p.in_panic_mode = true;
+
+            p.ctx.out.print("[line {d}] Error", .{token.line}) catch unreachable;
+
+            if (token.typ == .eof) {
+                p.ctx.out.print(" at end", .{}) catch unreachable;
+            } else if (token.typ == .@"error") {
+                // nothing
+            } else {
+                p.ctx.out.print(" at '{s}'", .{token.lexeme}) catch unreachable;
+            }
+
+            p.ctx.out.print(": {s}\n", .{message}) catch unreachable;
+        }
+    };
 }
+
+// XXX going by the book for now, but eventually fix up this global variable stuff...
+var current_chunk: *Chunk = undefined;
+
+fn emit_byte(b: u8) void {
+    // XXX in the book this grabs the line number from the global parser...
+    current_chunk.write(b, 1);
+}
+
+fn emit_bytes(b1: u8, b2: u8) void {
+    // XXX in the book this grabs the line number from the global parser...
+    current_chunk.write(b1, 1);
+    current_chunk.write(b2, 1);
+}
+
+fn emit_constant(value: Value) void {
+    emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
+}
+
+pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype) bool {
+    var s = Scanner.init(source_text);
+    const ctx = .{ .out = err_printer };
+    var p = Parser(@TypeOf(ctx)).init(s, ctx);
+
+    current_chunk = ch;
+
+    p.advance();
+    p.expression();
+    p.consume(.eof, "Expected end of expression.");
+
+    // "endCompiler()"
+    //   "emitReturn()"
+    emit_byte(@intFromEnum(OpCode.@"return"));
+
+    if (dbg.options.print_code and !p.had_error) {
+        dbg.Disassembler.chunk(current_chunk.*, "result", err_printer);
+    }
+
+    return !p.had_error;
+}
+
+const ux = @import("ux.zig");
+const dbg = @import("debug.zig");
+
+const Chunk = @import("chunk.zig").Chunk;
+const OpCode = @import("chunk.zig").OpCode;
+const Value = @import("value.zig").Value;
 
 const std = @import("std");
 const log = std.log.scoped(.cpl);

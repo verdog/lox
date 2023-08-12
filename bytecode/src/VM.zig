@@ -10,6 +10,7 @@ pub const InterpretResult = enum {
 
 const stack_max = 256;
 
+chunk: Chunk = undefined,
 ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
@@ -23,17 +24,19 @@ pub fn deinit(vm: VM) void {
     // vm.chunk.deinit(); // ?
 }
 
-pub fn interpret(vm: *VM, source_text: []const u8, out: anytype) InterpretResult {
-    _ = vm;
-    _ = out;
+pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
+    var ch = Chunk.init(alctr);
+    defer ch.deinit();
 
-    cpl.compile(source_text);
-    return .ok;
+    if (!cpl.compile(source_text, &ch, out)) {
+        return .compile_error;
+    }
 
-    // TODO hook up interpreter again
-    // vm.ip = 0;
-    // vm.stack_reset();
-    // return vm.run(out);
+    vm.chunk = ch;
+    vm.ip = 0;
+    vm.stack_reset();
+
+    return vm.run(out);
 }
 
 fn run(vm: *VM, out: anytype) InterpretResult {
