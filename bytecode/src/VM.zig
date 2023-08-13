@@ -26,7 +26,7 @@ pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
         const next = obj.next;
         obj.deinit(alctr);
         switch (obj.typ) {
-            .string => alctr.destroy(@fieldParentPtr(vl.ObjString, "obj", obj)),
+            .string => alctr.destroy(obj.as_string()),
         }
         m_obj = next;
     }

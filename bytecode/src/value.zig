@@ -9,8 +9,12 @@ pub const Value = union(enum) {
     pub fn deinit(v: Value, alctr: std.mem.Allocator) void {
         switch (v) {
             .obj => |o| {
-                o.deinit(alctr);
-                alctr.destroy(@fieldParentPtr(ObjString, "obj", o));
+                switch (o.typ) {
+                    .string => {
+                        o.deinit(alctr);
+                        alctr.destroy(v.as_string());
+                    },
+                }
             },
             else => {}, // nothing to do
         }
@@ -33,7 +37,7 @@ pub const Value = union(enum) {
             .obj => |o| {
                 switch (o.typ) {
                     .string => {
-                        return std.mem.eql(u8, a.as_string_buf(), b.as_string_buf());
+                        return std.mem.eql(u8, a.as_string().buf, b.as_string().buf);
                     },
                 }
             },
@@ -46,16 +50,7 @@ pub const Value = union(enum) {
 
     pub fn as_string(v: Value) *ObjString {
         std.debug.assert(std.meta.activeTag(v) == .obj);
-        std.debug.assert(v.obj.typ == .string);
-
-        return @fieldParentPtr(ObjString, "obj", v.obj);
-    }
-
-    pub fn as_string_buf(v: Value) []u8 {
-        std.debug.assert(std.meta.activeTag(v) == .obj);
-        std.debug.assert(v.obj.typ == .string);
-
-        return @fieldParentPtr(ObjString, "obj", v.obj).buf;
+        return v.obj.as_string();
     }
 };
 
@@ -67,9 +62,14 @@ pub const Obj = struct {
     pub fn deinit(o: *Obj, alctr: std.mem.Allocator) void {
         switch (o.typ) {
             .string => {
-                @fieldParentPtr(ObjString, "obj", o).deinit(alctr);
+                o.as_string().deinit(alctr);
             },
         }
+    }
+
+    pub fn as_string(o: *Obj) *ObjString {
+        std.debug.assert(o.typ == .string);
+        return @fieldParentPtr(ObjString, "obj", o);
     }
 
     typ: Type,
