@@ -68,7 +68,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                 var stack_idx = @as(usize, 0);
                 while (stack_idx < vm.stack_top) : (stack_idx += 1) {
                     out.print("[ ", .{}) catch unreachable;
-                    vl.print_value(vm.stack[stack_idx], out);
+                    vm.stack[stack_idx].print(out);
                     out.print(" ]", .{}) catch unreachable;
                 }
                 out.print("\n", .{}) catch unreachable;
@@ -78,7 +78,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
 
         switch (inst) {
             .@"return" => {
-                vl.print_value(vm.stack_pop(), out);
+                vm.stack_pop().print(out);
                 out.print("\n", .{}) catch unreachable;
                 return .ok;
             },

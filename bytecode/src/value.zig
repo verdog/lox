@@ -46,6 +46,22 @@ pub const Value = union(enum) {
         std.debug.assert(std.meta.activeTag(v) == .obj);
         return v.obj.as_string();
     }
+
+    pub fn print(val: Value, out: anytype) void {
+        switch (val) {
+            .number => |n| out.print("{d}", .{n}) catch unreachable,
+            .booln => |b| out.print("{}", .{b}) catch unreachable,
+            .nil => out.print("(nil)", .{}) catch unreachable,
+            .obj => |o| {
+                switch (o.typ) {
+                    .string => {
+                        var str = val.as_string();
+                        out.print("{s}", .{str.buf}) catch unreachable;
+                    },
+                }
+            },
+        }
+    }
 };
 
 pub const Obj = struct {
@@ -87,22 +103,6 @@ pub const ObjString = struct {
         os.hash = hash;
     }
 };
-
-pub fn print_value(val: Value, out: anytype) void {
-    switch (val) {
-        .number => |n| out.print("{d}", .{n}) catch unreachable,
-        .booln => |b| out.print("{}", .{b}) catch unreachable,
-        .nil => out.print("(nil)", .{}) catch unreachable,
-        .obj => |o| {
-            switch (o.typ) {
-                .string => {
-                    var str = val.as_string();
-                    out.print("{s}", .{str.buf}) catch unreachable;
-                },
-            }
-        },
-    }
-}
 
 pub fn make_string_value(text: []const u8, cache: *tbl.Table, objs_head: *?*Obj, alctr: std.mem.Allocator) Value {
     if (cache.find_string(text)) |cached| return cached;
