@@ -14,37 +14,24 @@ chunk: Chunk = undefined,
 ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
-objs: ?*vl.Obj = undefined,
-strings: tbl.Table = undefined,
+pool: vl.ObjPool = undefined,
 
 pub fn init(alctr: std.mem.Allocator) VM {
     return .{
-        .strings = tbl.Table.init(alctr),
-        .objs = null,
+        .pool = vl.ObjPool.init(alctr),
     };
 }
 
 pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
-    var m_obj: ?*vl.Obj = vm.objs;
-    var count = @as(usize, 0);
-    while (m_obj) |obj| {
-        count += 1;
-        const next = obj.next;
-        obj.deinit(alctr);
-        switch (obj.typ) {
-            .string => alctr.destroy(obj.as_string()),
-        }
-        m_obj = next;
-    }
-    log.debug("freed {d} objs", .{count});
-    @constCast(&vm).strings.deinit();
+    _ = alctr;
+    vm.pool.deinit();
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
     var ch = Chunk.init(alctr);
     defer ch.deinit(alctr);
 
-    const compile_result = cpl.compile(source_text, &ch, &vm.strings, &vm.objs, out, alctr);
+    const compile_result = cpl.compile(source_text, &ch, &vm.pool, out);
 
     if (!compile_result) return .compile_error;
 
@@ -121,7 +108,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                     @memcpy(new_chars[0..a.buf.len], a.buf);
                     @memcpy(new_chars[a.buf.len..], b.buf);
 
-                    const result = vl.take_string_value(new_chars, &vm.strings, &vm.objs, alctr);
+                    const result = vm.pool.take_string_value(new_chars);
                     vm.stack_push(result);
                 } else if (std.meta.activeTag(vm.stack_peek(0)) == .number and
                     std.meta.activeTag(vm.stack_peek(1)) == .number)

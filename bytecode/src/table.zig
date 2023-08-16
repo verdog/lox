@@ -27,10 +27,11 @@ pub const Table = struct {
         return t;
     }
 
-    pub fn deinit(t: *Table) void {
+    pub fn deinit(t: Table) void {
         t.alctr.free(t.entries);
-        t.count = 0;
-        t.entries = undefined;
+        // book has table reset here? might need a different reset operation later
+        // t.count = 0;
+        // t.entries = undefined;
     }
 
     pub fn set(t: *Table, key: *vl.ObjString, value: vl.Value) bool {
@@ -167,6 +168,6 @@ pub fn hash(text: []const u8) u32 {
     return h;
 }
 
-const vl = @import("value.zig");
-
 const std = @import("std");
+
+const vl = @import("value.zig");

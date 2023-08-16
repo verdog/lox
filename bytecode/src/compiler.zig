@@ -230,13 +230,30 @@ fn Parser(comptime Context: type) type {
         scanner: Scanner,
         previous: Token,
         current: Token,
-        strings: *tbl.Table,
-        objs: *?*vl.Obj,
+        pool: *vl.ObjPool,
         had_error: bool,
         in_panic_mode: bool,
         ctx: Context,
 
         const P = @This();
+
+        pub fn init(scanner: Scanner, pool: *vl.ObjPool, ctx: Context) P {
+            return .{
+                .scanner = scanner,
+                .previous = undefined,
+                .current = undefined,
+                .pool = pool,
+                .had_error = false,
+                .in_panic_mode = false,
+                .ctx = ctx,
+            };
+        }
+
+        const Rule = struct {
+            prefix: *const fn (p: *P) void,
+            infix: *const fn (p: *P) void,
+            precedence: Precedence,
+        };
 
         const Precedence = enum(u8) {
             none,
@@ -250,12 +267,6 @@ fn Parser(comptime Context: type) type {
             unary, // ! -
             call, // . ()
             primary,
-        };
-
-        const Rule = struct {
-            prefix: *const fn (p: *P) void,
-            infix: *const fn (p: *P) void,
-            precedence: Precedence,
         };
 
         fn get_rule(p: P, typ: Token.Type) Rule {
@@ -305,19 +316,6 @@ fn Parser(comptime Context: type) type {
             };
         }
 
-        pub fn init(scanner: Scanner, strings: *tbl.Table, objs: *?*vl.Obj, ctx: Context) P {
-            return .{
-                .scanner = scanner,
-                .previous = undefined,
-                .current = undefined,
-                .strings = strings,
-                .objs = objs,
-                .had_error = false,
-                .in_panic_mode = false,
-                .ctx = ctx,
-            };
-        }
-
         pub fn advance(p: *P) void {
             p.previous = p.current;
 
@@ -355,7 +353,7 @@ fn Parser(comptime Context: type) type {
         }
 
         pub fn string(p: *P) void {
-            emit_constant(vl.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1], p.strings, p.objs, p.ctx.alctr));
+            emit_constant(p.pool.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1]));
         }
 
         pub fn grouping(p: *P) void {
@@ -476,10 +474,10 @@ fn emit_constant(value: Value) void {
     emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
 }
 
-pub fn compile(source_text: []const u8, ch: *Chunk, strings: *tbl.Table, obj_list: *?*vl.Obj, err_printer: anytype, alctr: std.mem.Allocator) bool {
+pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_printer: anytype) bool {
     var s = Scanner.init(source_text);
-    const ctx = .{ .out = err_printer, .alctr = alctr };
-    var p = Parser(@TypeOf(ctx)).init(s, strings, obj_list, ctx);
+    const ctx = .{ .out = err_printer };
+    var p = Parser(@TypeOf(ctx)).init(s, pool, ctx);
 
     current_chunk = ch;
 

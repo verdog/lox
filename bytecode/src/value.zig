@@ -104,35 +104,69 @@ pub const ObjString = struct {
     }
 };
 
-pub fn make_string_value(text: []const u8, cache: *tbl.Table, objs_head: *?*Obj, alctr: std.mem.Allocator) Value {
-    if (cache.find_string(text)) |cached| return cached;
+pub const ObjPool = struct {
+    alctr: std.mem.Allocator,
+    cached_strings: tbl.Table,
+    objs_list: ?*Obj,
 
-    const chars = alctr.dupe(u8, text) catch @panic("OOM");
-    return take_string_value(chars, cache, objs_head, alctr);
-}
-
-pub fn take_string_value(text: []u8, cache: *tbl.Table, objs_head: *?*Obj, alctr: std.mem.Allocator) Value {
-    if (cache.find_string(text)) |cached| {
-        alctr.free(text);
-        return cached;
+    pub fn init(alctr: std.mem.Allocator) ObjPool {
+        return .{
+            .alctr = alctr,
+            .cached_strings = tbl.Table.init(alctr),
+            .objs_list = @as(?*Obj, null),
+        };
     }
 
-    // allocate and init
-    var obj_s = alctr.create(ObjString) catch @panic("OOM");
-    obj_s.init_in_place(text, tbl.hash(text));
+    pub fn deinit(pl: ObjPool) void {
+        // free objs list
+        var m_obj: ?*Obj = pl.objs_list;
+        var count = @as(usize, 0);
+        while (m_obj) |obj| {
+            count += 1;
+            const next = obj.next;
+            obj.deinit(pl.alctr);
+            switch (obj.typ) {
+                .string => pl.alctr.destroy(obj.as_string()),
+            }
+            m_obj = next;
+        }
+        log.debug("freed {d} objs", .{count});
 
-    // track
-    obj_s.obj.next = objs_head.*;
-    objs_head.* = &obj_s.obj;
+        // free cached strings
+        pl.cached_strings.deinit();
+    }
 
-    // cache
-    const unique = cache.set(obj_s, Value{ .nil = {} });
-    std.debug.assert(unique);
+    pub fn make_string_value(pl: *ObjPool, text: []const u8) Value {
+        if (pl.cached_strings.find_string(text)) |cached| return cached;
 
-    const val = Value{ .obj = &obj_s.obj };
-    return val;
-}
+        const chars = pl.alctr.dupe(u8, text) catch @panic("OOM");
+        return pl.take_string_value(chars);
+    }
 
-const tbl = @import("table.zig");
+    pub fn take_string_value(pl: *ObjPool, text: []u8) Value {
+        if (pl.cached_strings.find_string(text)) |cached| {
+            pl.alctr.free(text);
+            return cached;
+        }
+
+        // allocate and init
+        var obj_s = pl.alctr.create(ObjString) catch @panic("OOM");
+        obj_s.init_in_place(text, tbl.hash(text));
+
+        // track
+        obj_s.obj.next = pl.objs_list;
+        pl.objs_list = &obj_s.obj;
+
+        // cache
+        const unique = pl.cached_strings.set(obj_s, Value{ .nil = {} });
+        std.debug.assert(unique);
+
+        const val = Value{ .obj = &obj_s.obj };
+        return val;
+    }
+};
 
 const std = @import("std");
+const log = std.log.scoped(.value);
+
+const tbl = @import("table.zig");
