@@ -22,8 +22,7 @@ pub fn init(alctr: std.mem.Allocator) VM {
     };
 }
 
-pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
-    _ = alctr;
+pub fn deinit(vm: VM) void {
     vm.pool.deinit();
 }
 

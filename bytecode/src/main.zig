@@ -54,7 +54,7 @@ fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 1024;
 
     var vm = VM.init(heap);
-    defer vm.deinit(heap);
+    defer vm.deinit();
 
     while (true) {
         try ux.out.print("> ", .{});
