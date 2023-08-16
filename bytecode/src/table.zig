@@ -168,6 +168,8 @@ pub fn hash(text: []const u8) u32 {
     return h;
 }
 
+// TODO add extensive unit tests
+
 const std = @import("std");
 
 const vl = @import("value.zig");

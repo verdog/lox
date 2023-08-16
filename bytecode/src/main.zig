@@ -82,7 +82,7 @@ test "run all tests" {
 
 const std = @import("std");
 var gpa = std.heap.GeneralPurposeAllocator(.{
-    .stack_trace_frames = 16,
+    .stack_trace_frames = 32,
 }){};
 var heap = gpa.allocator();
 
