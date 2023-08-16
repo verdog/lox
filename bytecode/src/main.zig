@@ -2,7 +2,7 @@ pub const std_options = struct {
     pub const log_level = if (@import("builtin").mode == .Debug) .debug else .info;
 };
 
-pub fn main() !void {
+pub fn main() !u8 {
     defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
     defer ux.stdout_buffer.flush() catch {};
 
@@ -11,10 +11,22 @@ pub fn main() !void {
         log.err("invalid arguments {s}", .{std.os.argv});
         std.os.exit(64);
     } else if (std.os.argv.len == 2) {
-        try run_file(std.mem.sliceTo(std.os.argv[1], '\x00'));
+        run_file(std.mem.sliceTo(std.os.argv[1], '\x00')) catch |e| switch (e) {
+            VM.Error.compile_error => {
+                try ux.out.print("Compile error\n", .{});
+                return 65;
+            },
+            VM.Error.runtime_error => {
+                try ux.out.print("Runtime error\n", .{});
+                return 70;
+            },
+            else => return e,
+        };
     } else {
         try run_prompt();
     }
+
+    return 0;
 }
 
 fn run_file(path: []const u8) !void {
@@ -37,17 +49,9 @@ fn run_file(path: []const u8) !void {
     defer heap.free(bytes);
 
     var vm = VM.init(heap);
-    defer vm.deinit(heap);
+    defer vm.deinit();
 
-    // TODO convert these errors to zig errors
-    const result = vm.interpret(bytes, heap, ux.out);
-    // TODO remove this flush
-    ux.stdout_buffer.flush() catch {};
-    switch (result) {
-        .compile_error => std.os.exit(65),
-        .runtime_error => std.os.exit(70),
-        .ok => std.os.exit(0),
-    }
+    try vm.interpret(bytes, heap, ux.out);
 }
 
 fn run_prompt() !void {
@@ -61,15 +65,11 @@ fn run_prompt() !void {
         try ux.stdout_buffer.flush();
         const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
-            // TODO convert these errors to zig errors
-            const result = vm.interpret(line, heap, ux.out);
-            // TODO remove this flush
+            vm.interpret(line, heap, ux.out) catch |e| switch (e) {
+                VM.Error.compile_error => try ux.out.print("Compile error\n", .{}),
+                VM.Error.runtime_error => try ux.out.print("Runtime error\n", .{}),
+            };
             ux.stdout_buffer.flush() catch {};
-            switch (result) {
-                .compile_error => std.os.exit(65),
-                .runtime_error => std.os.exit(70),
-                .ok => {},
-            }
         } else {
             break;
         }

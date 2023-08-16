@@ -2,8 +2,7 @@
 
 const VM = @This();
 
-pub const InterpretResult = enum {
-    ok,
+pub const Error = error{
     compile_error,
     runtime_error,
 };
@@ -26,13 +25,13 @@ pub fn deinit(vm: VM) void {
     vm.pool.deinit();
 }
 
-pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
+pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
     var ch = Chunk.init(alctr);
     defer ch.deinit();
 
     const compile_result = cpl.compile(source_text, &ch, &vm.pool, out);
 
-    if (!compile_result) return .compile_error;
+    if (!compile_result) return Error.compile_error;
 
     vm.chunk = ch;
     vm.ip = 0;
@@ -44,7 +43,7 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     return vm.run(alctr, out);
 }
 
-fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
+fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
     while (true) {
         if (dbg.options.trace_execution) {
             // trace instruction
@@ -66,7 +65,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
             .@"return" => {
                 vm.stack_pop().print(out);
                 out.print("\n", .{}) catch unreachable;
-                return .ok;
+                return;
             },
             .constant => {
                 const constant = vm.read_constant();
@@ -83,7 +82,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                     },
                     else => {
                         vm.print_runtime_error(out, "Operand must be a number.", .{});
-                        return .runtime_error;
+                        return Error.runtime_error;
                     },
                 }
             },
@@ -129,7 +128,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                     } else {
                         vm.print_runtime_error(out, "Operands must be numbers.", .{});
                     }
-                    return .runtime_error;
+                    return Error.runtime_error;
                 }
             },
             .equal => {
@@ -137,7 +136,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                 const a = vm.stack_pop();
                 vm.stack_push(Value{ .booln = a.check_eql(b) });
             },
-            _ => return .runtime_error, // unknown opcode
+            _ => return Error.runtime_error, // unknown opcode
         }
     }
 }
@@ -183,7 +182,14 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
     const line = vm.chunk.lines.items[instruction];
     out.print("\n[line {d}] in script\n", .{line}) catch unreachable;
 
-    // TODO: dump stack if enabled
+    if (dbg.options.dump_stack_on_runtime_error) {
+        out.print("Stack, starting at bottom:\n", .{}) catch unreachable;
+        var i = @as(usize, 0);
+        while (i < vm.stack_top) : (i += 1) {
+            vm.stack[i].print(out);
+            out.print("\n", .{}) catch unreachable;
+        }
+    }
 
     vm.stack_reset();
 }

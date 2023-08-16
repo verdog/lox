@@ -398,7 +398,7 @@ fn Parser(comptime Context: type) type {
         // used to fill in unimplemented entries in the rules table
         fn unimplemented(p: *P) void {
             _ = p;
-            @panic("unimplemented");
+            unreachable;
         }
 
         pub fn parse_precedence(p: *P, precedence: Precedence) void {
@@ -428,6 +428,7 @@ fn Parser(comptime Context: type) type {
         }
 
         fn print_error_at(p: *P, token: Token, message: []const u8) void {
+            // TODO convert this fn to use zig errors
             // TODO hoist the flag setting out of an otherwise side effect free print fn
             if (p.in_panic_mode) return;
             p.had_error = true;

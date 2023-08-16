@@ -3,6 +3,7 @@
 pub const DebugOptions = struct {
     trace_execution: bool = true,
     print_code: bool = true,
+    dump_stack_on_runtime_error: bool = true,
 };
 
 pub var options = DebugOptions{};
