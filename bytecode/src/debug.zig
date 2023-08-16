@@ -113,7 +113,7 @@ pub const Disassembler = struct {
 test "disassembler header length: even length name" {
     var chunk = Chunk.init(std.testing.allocator);
     defer chunk.deinit(std.testing.allocator);
-    chunk.writeOpCode(OpCode.@"return", 123);
+    chunk.write_opcode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer out_buf.deinit();
@@ -130,7 +130,7 @@ test "disassembler header length: even length name" {
 test "disassembler header length: odd length name" {
     var chunk = Chunk.init(std.testing.allocator);
     defer chunk.deinit(std.testing.allocator);
-    chunk.writeOpCode(OpCode.@"return", 123);
+    chunk.write_opcode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);
     defer out_buf.deinit();

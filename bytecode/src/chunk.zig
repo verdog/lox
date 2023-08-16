@@ -43,11 +43,11 @@ pub const Chunk = struct {
         c.lines.append(line) catch @panic("OOM");
     }
 
-    pub fn writeOpCode(c: *Chunk, opcode: OpCode, line: u32) void {
+    pub fn write_opcode(c: *Chunk, opcode: OpCode, line: u32) void {
         return c.write(@intFromEnum(opcode), line);
     }
 
-    pub fn addConstant(c: *Chunk, val: value.Value) u8 {
+    pub fn add_constant(c: *Chunk, val: value.Value) u8 {
         c.constants.append(val) catch @panic("OOM");
         std.debug.assert(c.constants.items.len < std.math.maxInt(u8));
         return @intCast(c.constants.items.len - 1);

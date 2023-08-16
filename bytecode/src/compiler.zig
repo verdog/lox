@@ -471,7 +471,7 @@ fn emit_ops(o1: OpCode, o2: OpCode) void {
 }
 
 fn emit_constant(value: Value) void {
-    emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
+    emit_bytes(@intFromEnum(OpCode.constant), current_chunk.add_constant(value));
 }
 
 pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_printer: anytype) bool {
