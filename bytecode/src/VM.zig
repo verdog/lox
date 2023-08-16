@@ -28,7 +28,7 @@ pub fn deinit(vm: VM) void {
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
     var ch = Chunk.init(alctr);
-    defer ch.deinit(alctr);
+    defer ch.deinit();
 
     const compile_result = cpl.compile(source_text, &ch, &vm.pool, out);
 
