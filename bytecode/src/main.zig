@@ -11,13 +11,13 @@ pub fn main() !void {
         log.err("invalid arguments {s}", .{std.os.argv});
         std.os.exit(64);
     } else if (std.os.argv.len == 2) {
-        try runFile(std.mem.sliceTo(std.os.argv[1], '\x00'));
+        try run_file(std.mem.sliceTo(std.os.argv[1], '\x00'));
     } else {
-        try runPrompt();
+        try run_prompt();
     }
 }
 
-fn runFile(path: []const u8) !void {
+fn run_file(path: []const u8) !void {
     const file = std.fs.cwd().openFile(path, .{}) catch |e| switch (e) {
         error.FileNotFound => {
             log.err("file not found: {s}", .{path});
@@ -50,7 +50,7 @@ fn runFile(path: []const u8) !void {
     }
 }
 
-fn runPrompt() !void {
+fn run_prompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 1024;
 
     var vm = VM.init(heap);
