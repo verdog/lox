@@ -36,7 +36,7 @@ fn runFile(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
-    var vm = VM.init();
+    var vm = VM.init(heap);
     defer vm.deinit(heap);
 
     // TODO convert these errors to zig errors
@@ -53,7 +53,7 @@ fn runFile(path: []const u8) !void {
 fn runPrompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 1024;
 
-    var vm = VM.init();
+    var vm = VM.init(heap);
     defer vm.deinit(heap);
 
     while (true) {

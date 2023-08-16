@@ -230,6 +230,8 @@ fn Parser(comptime Context: type) type {
         scanner: Scanner,
         previous: Token,
         current: Token,
+        strings: *tbl.Table,
+        objs: *?*vl.Obj,
         had_error: bool,
         in_panic_mode: bool,
         ctx: Context,
@@ -303,11 +305,13 @@ fn Parser(comptime Context: type) type {
             };
         }
 
-        pub fn init(scanner: Scanner, ctx: Context) P {
+        pub fn init(scanner: Scanner, strings: *tbl.Table, objs: *?*vl.Obj, ctx: Context) P {
             return .{
                 .scanner = scanner,
                 .previous = undefined,
                 .current = undefined,
+                .strings = strings,
+                .objs = objs,
                 .had_error = false,
                 .in_panic_mode = false,
                 .ctx = ctx,
@@ -351,7 +355,7 @@ fn Parser(comptime Context: type) type {
         }
 
         pub fn string(p: *P) void {
-            emit_constant(vl.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1], p.ctx.alctr));
+            emit_constant(vl.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1], p.strings, p.objs, p.ctx.alctr));
         }
 
         pub fn grouping(p: *P) void {
@@ -472,10 +476,10 @@ fn emit_constant(value: Value) void {
     emit_bytes(@intFromEnum(OpCode.constant), current_chunk.addConstant(value));
 }
 
-pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype, alctr: std.mem.Allocator) bool {
+pub fn compile(source_text: []const u8, ch: *Chunk, strings: *tbl.Table, obj_list: *?*vl.Obj, err_printer: anytype, alctr: std.mem.Allocator) bool {
     var s = Scanner.init(source_text);
     const ctx = .{ .out = err_printer, .alctr = alctr };
-    var p = Parser(@TypeOf(ctx)).init(s, ctx);
+    var p = Parser(@TypeOf(ctx)).init(s, strings, obj_list, ctx);
 
     current_chunk = ch;
 
@@ -497,6 +501,7 @@ pub fn compile(source_text: []const u8, ch: *Chunk, err_printer: anytype, alctr:
 const vl = @import("value.zig");
 const ux = @import("ux.zig");
 const dbg = @import("debug.zig");
+const tbl = @import("table.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;

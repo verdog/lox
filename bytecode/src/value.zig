@@ -34,13 +34,7 @@ pub const Value = union(enum) {
             .nil => return true,
             .booln => return a.booln == b.booln,
             .number => return a.number == b.number,
-            .obj => |o| {
-                switch (o.typ) {
-                    .string => {
-                        return std.mem.eql(u8, a.as_string().buf, b.as_string().buf);
-                    },
-                }
-            },
+            .obj => return a.obj == b.obj,
         }
     }
 
@@ -79,31 +73,20 @@ pub const Obj = struct {
 pub const ObjString = struct {
     obj: Obj,
     buf: []u8,
+    hash: u32,
 
     pub fn deinit(os: ObjString, alctr: std.mem.Allocator) void {
         alctr.free(os.buf);
     }
 
-    pub fn init_in_place(os: *ObjString, chars: []u8) void {
+    pub fn init_in_place(os: *ObjString, chars: []u8, hash: u32) void {
         os.obj.typ = .string;
         os.obj.next = null;
+
         os.buf = chars;
+        os.hash = hash;
     }
 };
-
-pub fn make_string_value(text: []const u8, alctr: std.mem.Allocator) Value {
-    const chars = alctr.dupe(u8, text) catch @panic("OOM");
-    return take_string_value(chars, alctr);
-}
-
-pub fn take_string_value(text: []u8, alctr: std.mem.Allocator) Value {
-    var obj_s = alctr.create(ObjString) catch @panic("OOM");
-    obj_s.init_in_place(text);
-
-    const val = Value{ .obj = &obj_s.obj };
-
-    return val;
-}
 
 pub fn print_value(val: Value, out: anytype) void {
     switch (val) {
@@ -120,5 +103,36 @@ pub fn print_value(val: Value, out: anytype) void {
         },
     }
 }
+
+pub fn make_string_value(text: []const u8, cache: *tbl.Table, objs_head: *?*Obj, alctr: std.mem.Allocator) Value {
+    if (cache.find_string(text)) |cached| return cached;
+
+    const chars = alctr.dupe(u8, text) catch @panic("OOM");
+    return take_string_value(chars, cache, objs_head, alctr);
+}
+
+pub fn take_string_value(text: []u8, cache: *tbl.Table, objs_head: *?*Obj, alctr: std.mem.Allocator) Value {
+    if (cache.find_string(text)) |cached| {
+        alctr.free(text);
+        return cached;
+    }
+
+    // allocate and init
+    var obj_s = alctr.create(ObjString) catch @panic("OOM");
+    obj_s.init_in_place(text, tbl.hash(text));
+
+    // track
+    obj_s.obj.next = objs_head.*;
+    objs_head.* = &obj_s.obj;
+
+    // cache
+    const unique = cache.set(obj_s, Value{ .nil = {} });
+    std.debug.assert(unique);
+
+    const val = Value{ .obj = &obj_s.obj };
+    return val;
+}
+
+const tbl = @import("table.zig");
 
 const std = @import("std");

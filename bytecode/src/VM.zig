@@ -15,14 +15,20 @@ ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
 objs: ?*vl.Obj = undefined,
+strings: tbl.Table = undefined,
 
-pub fn init() VM {
-    return .{};
+pub fn init(alctr: std.mem.Allocator) VM {
+    return .{
+        .strings = tbl.Table.init(alctr),
+        .objs = null,
+    };
 }
 
 pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
     var m_obj: ?*vl.Obj = vm.objs;
+    var count = @as(usize, 0);
     while (m_obj) |obj| {
+        count += 1;
         const next = obj.next;
         obj.deinit(alctr);
         switch (obj.typ) {
@@ -30,20 +36,21 @@ pub fn deinit(vm: VM, alctr: std.mem.Allocator) void {
         }
         m_obj = next;
     }
+    log.debug("freed {d} objs", .{count});
+    @constCast(&vm).strings.deinit();
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) InterpretResult {
     var ch = Chunk.init(alctr);
     defer ch.deinit(alctr);
 
-    if (!cpl.compile(source_text, &ch, out, alctr)) {
-        return .compile_error;
-    }
+    const compile_result = cpl.compile(source_text, &ch, &vm.strings, &vm.objs, out, alctr);
+
+    if (!compile_result) return .compile_error;
 
     vm.chunk = ch;
     vm.ip = 0;
     vm.stack_reset();
-    vm.objs = null;
 
     if (dbg.options.trace_execution) {
         out.print("Execution trace:\n", .{}) catch unreachable;
@@ -114,9 +121,8 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) InterpretResult {
                     @memcpy(new_chars[0..a.buf.len], a.buf);
                     @memcpy(new_chars[a.buf.len..], b.buf);
 
-                    const new_value = vl.take_string_value(new_chars, alctr);
-                    vm.track_obj(new_value.obj);
-                    vm.stack_push(new_value);
+                    const result = vl.take_string_value(new_chars, &vm.strings, &vm.objs, alctr);
+                    vm.stack_push(result);
                 } else if (std.meta.activeTag(vm.stack_peek(0)) == .number and
                     std.meta.activeTag(vm.stack_peek(1)) == .number)
                 {
@@ -197,10 +203,12 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
 }
 
 const std = @import("std");
+const log = std.log.scoped(.vm);
 
 const vl = @import("value.zig");
 const dbg = @import("debug.zig");
 const cpl = @import("compiler.zig");
+const tbl = @import("table.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;

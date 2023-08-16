@@ -32,11 +32,10 @@ pub const Chunk = struct {
     }
 
     pub fn deinit(ch: Chunk, alctr: std.mem.Allocator) void {
+        _ = alctr;
         ch.code.deinit();
         ch.lines.deinit();
-        for (ch.constants.items) |c| {
-            c.deinit(alctr);
-        }
+        // constants with items on heap are tracked in the vm's obj list
         ch.constants.deinit();
     }
 
