@@ -107,12 +107,14 @@ pub const ObjString = struct {
 pub const ObjPool = struct {
     alctr: std.mem.Allocator,
     cached_strings: tbl.Table,
+    globals: tbl.Table,
     objs_list: ?*Obj,
 
     pub fn init(alctr: std.mem.Allocator) ObjPool {
         return .{
             .alctr = alctr,
             .cached_strings = tbl.Table.init(alctr),
+            .globals = tbl.Table.init(alctr),
             .objs_list = @as(?*Obj, null),
         };
     }
@@ -134,6 +136,9 @@ pub const ObjPool = struct {
 
         // free cached strings
         pl.cached_strings.deinit();
+
+        // free globals
+        pl.globals.deinit();
     }
 
     pub fn make_string_value(pl: *ObjPool, text: []const u8) Value {

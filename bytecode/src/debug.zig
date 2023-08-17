@@ -2,7 +2,7 @@
 
 pub const DebugOptions = struct {
     trace_execution: bool = true,
-    print_code: bool = true,
+    print_code: bool = false, // it's adequately represented in the exec trace
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
 };
 
@@ -52,6 +52,7 @@ pub const Disassembler = struct {
         const opcode = @as(OpCode, @enumFromInt(ch.code.items[offset]));
         switch (opcode) {
             .@"return",
+            .print,
             .negate,
             .add,
             .subtract,
@@ -64,9 +65,13 @@ pub const Disassembler = struct {
             .equal,
             .less,
             .greater,
+            .pop,
             => return simple_inst(opcode, offset, out),
 
-            .constant => return constant_inst(opcode, ch, offset, out),
+            .define_global,
+            .get_global,
+            .constant,
+            => return constant_inst(opcode, ch, offset, out),
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;
@@ -75,13 +80,13 @@ pub const Disassembler = struct {
     }
 
     fn simple_inst(opcode: OpCode, offset: usize, out: anytype) usize {
-        out.print("{s: <18}", .{@tagName(opcode)}) catch unreachable;
+        out.print("{s: <24}", .{@tagName(opcode)}) catch unreachable;
         return offset + 1;
     }
 
     fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
         const constant_byte = ch.code.items[offset + 1];
-        out.print("{s: <8} {d: <3} ", .{ @tagName(opcode), constant_byte }) catch unreachable;
+        out.print("{s: <14} {d: <3} ", .{ @tagName(opcode), constant_byte }) catch unreachable;
         const val = ch.constants.items[constant_byte];
         switch (val) {
             .number => |n| {
@@ -113,7 +118,7 @@ pub const Disassembler = struct {
 
 test "disassembler header length: even length name" {
     var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit(std.testing.allocator);
+    defer chunk.deinit();
     chunk.write_opcode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);
@@ -130,7 +135,7 @@ test "disassembler header length: even length name" {
 
 test "disassembler header length: odd length name" {
     var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit(std.testing.allocator);
+    defer chunk.deinit();
     chunk.write_opcode(OpCode.@"return", 123);
 
     var out_buf = std.ArrayList(u8).init(std.testing.allocator);

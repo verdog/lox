@@ -63,9 +63,11 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 
         switch (inst) {
             .@"return" => {
+                return;
+            },
+            .print => {
                 vm.stack_pop().print(out);
                 out.print("\n", .{}) catch unreachable;
-                return;
             },
             .constant => {
                 const constant = vm.read_constant();
@@ -135,6 +137,23 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const b = vm.stack_pop();
                 const a = vm.stack_pop();
                 vm.stack_push(Value{ .booln = a.check_eql(b) });
+            },
+            .pop => _ = vm.stack_pop(),
+            .define_global => {
+                const name = vm.read_constant().as_string();
+                _ = vm.pool.globals.set(name, vm.stack_peek(0));
+                // book says: stack_pop outside of the call to set so that the vm can
+                // still find the value if garbage collection kicks in while setting the table item
+                _ = vm.stack_pop();
+            },
+            .get_global => {
+                const name = vm.read_constant().as_string();
+                if (vm.pool.globals.get(name)) |val| {
+                    vm.stack_push(val);
+                } else {
+                    vm.print_runtime_error(out, "Undefined variable '{s}'.", .{name.buf});
+                    return Error.runtime_error;
+                }
             },
             _ => return Error.runtime_error, // unknown opcode
         }

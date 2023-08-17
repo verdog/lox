@@ -291,7 +291,7 @@ fn Parser(comptime Context: type) type {
                 .less_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
                 .greater => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
                 .greater_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
-                // .identifier => {},
+                .identifier => .{ .prefix = P.variable, .infix = P.unimplemented, .precedence = .none },
                 .string => .{ .prefix = P.string, .infix = P.unimplemented, .precedence = .none },
                 .number => .{ .prefix = P.number, .infix = P.unimplemented, .precedence = .none },
                 // .@"and" => {},
@@ -326,12 +326,109 @@ fn Parser(comptime Context: type) type {
             }
         }
 
+        pub fn match(p: *P, typ: Token.Type) bool {
+            if (!p.check(typ)) return false;
+            p.advance();
+            return true;
+        }
+
+        pub fn check(p: *P, typ: Token.Type) bool {
+            return p.current.typ == typ;
+        }
+
         pub fn consume(p: *P, typ: Token.Type, message: []const u8) void {
             if (p.current.typ == typ) {
                 p.advance();
                 return;
             }
             p.print_error_at_current(message);
+        }
+
+        pub fn synchronize(p: *P) void {
+            p.in_panic_mode = false;
+
+            while (p.current.typ != .eof) : (p.advance()) {
+                if (p.previous.typ == .semicolon) return;
+                switch (p.current.typ) {
+                    .class,
+                    .fun,
+                    .@"var",
+                    .@"for",
+                    .@"if",
+                    .@"while",
+                    .print,
+                    .@"return",
+                    => return,
+
+                    else => {}, // do nothing
+                }
+            }
+        }
+
+        pub fn declaration(p: *P) void {
+            if (p.match(.@"var")) {
+                p.var_declaration();
+            } else {
+                p.statement();
+            }
+
+            if (p.in_panic_mode) p.synchronize();
+        }
+
+        pub fn var_declaration(p: *P) void {
+            const global = p.parse_variable("Expected variable name.");
+
+            if (p.match(.eql)) {
+                p.expression();
+            } else {
+                emit_op(.nil);
+            }
+            p.consume(.semicolon, "Expected ';' after variable declaration.");
+
+            p.define_variable(global);
+        }
+
+        fn parse_variable(p: *P, err_msg: []const u8) u8 {
+            p.consume(.identifier, err_msg);
+            return p.identifier_constant(p.previous);
+        }
+
+        fn identifier_constant(p: *P, name: Token) u8 {
+            return current_chunk.add_constant(p.pool.make_string_value(name.lexeme));
+        }
+
+        fn define_variable(p: *P, global: u8) void {
+            _ = p;
+            emit_bytes(@intFromEnum(OpCode.define_global), global);
+        }
+
+        pub fn statement(p: *P) void {
+            if (p.match(.print)) {
+                p.print_statement();
+            } else {
+                p.expression_statement();
+            }
+        }
+
+        pub fn print_statement(p: *P) void {
+            p.expression();
+            p.consume(.semicolon, "Expected ';' after value.");
+            emit_op(.print);
+        }
+
+        pub fn expression_statement(p: *P) void {
+            p.expression();
+            p.consume(.semicolon, "Expected ';' after expression.");
+            emit_op(.pop);
+        }
+
+        pub fn variable(p: *P) void {
+            p.named_variable(p.previous);
+        }
+
+        fn named_variable(p: *P, name: Token) void {
+            const arg = p.identifier_constant(name);
+            emit_bytes(@intFromEnum(OpCode.get_global), arg);
         }
 
         pub fn expression(p: *P) void {
@@ -483,8 +580,9 @@ pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_print
     current_chunk = ch;
 
     p.advance();
-    p.expression();
-    p.consume(.eof, "Expected end of expression.");
+    while (!p.match(.eof)) {
+        p.declaration();
+    }
 
     // "endCompiler()"
     //   "emitReturn()"
