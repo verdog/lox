@@ -250,8 +250,8 @@ fn Parser(comptime Context: type) type {
         }
 
         const Rule = struct {
-            prefix: *const fn (p: *P) void,
-            infix: *const fn (p: *P) void,
+            prefix: *const fn (p: *P, can_assign: bool) void,
+            infix: *const fn (p: *P, can_assign: bool) void,
             precedence: Precedence,
         };
 
@@ -272,47 +272,47 @@ fn Parser(comptime Context: type) type {
         fn get_rule(p: P, typ: Token.Type) Rule {
             _ = p;
             return switch (typ) {
-                .lparen => .{ .prefix = P.grouping, .infix = P.unimplemented, .precedence = .none },
+                .lparen => .{ .prefix = P.grouping, .infix = P.unimpl, .precedence = .none },
                 // .rparen => {},
                 // .lbrace => {},
                 // .rbrace => {},
                 // .comma => {},
                 // .dot => {},
                 .minus => .{ .prefix = P.unary, .infix = P.binary, .precedence = .term },
-                .plus => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .term },
+                .plus => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .term },
                 // .semicolon => {},
-                .slash => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
-                .star => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .factor },
-                .bang => .{ .prefix = P.unary, .infix = P.unimplemented, .precedence = .none },
-                .bang_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .equality },
+                .slash => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .factor },
+                .star => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .factor },
+                .bang => .{ .prefix = P.unary, .infix = P.unimpl, .precedence = .none },
+                .bang_eql => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .equality },
                 // .eql => {},
-                .eql_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .equality },
-                .less => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
-                .less_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
-                .greater => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
-                .greater_eql => .{ .prefix = P.unimplemented, .infix = P.binary, .precedence = .comparison },
-                .identifier => .{ .prefix = P.variable, .infix = P.unimplemented, .precedence = .none },
-                .string => .{ .prefix = P.string, .infix = P.unimplemented, .precedence = .none },
-                .number => .{ .prefix = P.number, .infix = P.unimplemented, .precedence = .none },
+                .eql_eql => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .equality },
+                .less => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .comparison },
+                .less_eql => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .comparison },
+                .greater => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .comparison },
+                .greater_eql => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .comparison },
+                .identifier => .{ .prefix = P.variable, .infix = P.unimpl, .precedence = .none },
+                .string => .{ .prefix = P.string, .infix = P.unimpl, .precedence = .none },
+                .number => .{ .prefix = P.number, .infix = P.unimpl, .precedence = .none },
                 // .@"and" => {},
                 // .class => {},
                 // .@"else" => {},
-                .false => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
+                .false => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
                 // .fun => {},
                 // .@"for" => {},
                 // .@"if" => {},
-                .nil => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
+                .nil => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
                 // .@"or" => {},
                 // .print => {},
                 // .@"return" => {},
                 // .super => {},
                 // .this => {},
-                .true => .{ .prefix = P.literal, .infix = P.unimplemented, .precedence = .none },
+                .true => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
                 // .@"var" => {},
                 // .@"while" => {},
                 // .@"error" => {},
                 // .eof => {},
-                else => .{ .prefix = P.unimplemented, .infix = P.unimplemented, .precedence = .none },
+                else => .{ .prefix = P.unimpl, .infix = P.unimpl, .precedence = .none },
             };
         }
 
@@ -422,25 +422,32 @@ fn Parser(comptime Context: type) type {
             emit_op(.pop);
         }
 
-        pub fn variable(p: *P) void {
-            p.named_variable(p.previous);
+        pub fn variable(p: *P, can_assign: bool) void {
+            p.named_variable(p.previous, can_assign);
         }
 
-        fn named_variable(p: *P, name: Token) void {
+        fn named_variable(p: *P, name: Token, can_assign: bool) void {
             const arg = p.identifier_constant(name);
-            emit_bytes(@intFromEnum(OpCode.get_global), arg);
+            if (can_assign and p.match(.eql)) {
+                p.expression();
+                emit_bytes(@intFromEnum(OpCode.set_global), arg);
+            } else {
+                emit_bytes(@intFromEnum(OpCode.get_global), arg);
+            }
         }
 
         pub fn expression(p: *P) void {
             p.parse_precedence(.assignment);
         }
 
-        pub fn number(p: *P) void {
+        pub fn number(p: *P, can_assign: bool) void {
+            _ = can_assign;
             const value: Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
             emit_constant(value);
         }
 
-        pub fn literal(p: *P) void {
+        pub fn literal(p: *P, can_assign: bool) void {
+            _ = can_assign;
             switch (p.previous.typ) {
                 .false => emit_byte(@intFromEnum(OpCode.false)),
                 .true => emit_byte(@intFromEnum(OpCode.true)),
@@ -449,16 +456,19 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn string(p: *P) void {
+        pub fn string(p: *P, can_assign: bool) void {
+            _ = can_assign;
             emit_constant(p.pool.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1]));
         }
 
-        pub fn grouping(p: *P) void {
+        pub fn grouping(p: *P, can_assign: bool) void {
+            _ = can_assign;
             p.expression();
             p.consume(.rparen, "Expected ')' after expression.");
         }
 
-        pub fn unary(p: *P) void {
+        pub fn unary(p: *P, can_assign: bool) void {
+            _ = can_assign;
             const typ = p.previous.typ;
 
             // compile the operand
@@ -472,7 +482,8 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn binary(p: *P) void {
+        pub fn binary(p: *P, can_assign: bool) void {
+            _ = can_assign;
             const typ = p.previous.typ;
             const rule = p.get_rule(typ);
             p.parse_precedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
@@ -493,26 +504,33 @@ fn Parser(comptime Context: type) type {
         }
 
         // used to fill in unimplemented entries in the rules table
-        fn unimplemented(p: *P) void {
+        fn unimpl(p: *P, can_assign: bool) void {
+            _ = can_assign;
             _ = p;
             unreachable;
         }
 
         pub fn parse_precedence(p: *P, precedence: Precedence) void {
+            const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
+
             {
                 p.advance();
                 const rule = p.get_rule(p.previous.typ);
-                if (rule.prefix == &P.unimplemented) {
+                if (rule.prefix == &P.unimpl) {
                     p.print_error("Expected expression.");
                     return;
                 }
-                rule.prefix(p);
+                rule.prefix(p, can_assign);
             }
 
             while (@intFromEnum(precedence) <= @intFromEnum(p.get_rule(p.current.typ).precedence)) {
                 p.advance();
                 const rule = p.get_rule(p.previous.typ);
-                rule.infix(p);
+                rule.infix(p, can_assign);
+            }
+
+            if (can_assign and p.match(.eql)) {
+                p.print_error("Invalid assignment target.");
             }
         }
 

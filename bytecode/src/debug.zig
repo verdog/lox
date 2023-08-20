@@ -70,6 +70,7 @@ pub const Disassembler = struct {
 
             .define_global,
             .get_global,
+            .set_global,
             .constant,
             => return constant_inst(opcode, ch, offset, out),
             _ => {
@@ -80,7 +81,7 @@ pub const Disassembler = struct {
     }
 
     fn simple_inst(opcode: OpCode, offset: usize, out: anytype) usize {
-        out.print("{s: <24}", .{@tagName(opcode)}) catch unreachable;
+        out.print("{s: <31}", .{@tagName(opcode)}) catch unreachable;
         return offset + 1;
     }
 
@@ -91,22 +92,22 @@ pub const Disassembler = struct {
         switch (val) {
             .number => |n| {
                 const digits = @floor(std.math.log10(n)) + 1;
-                if (digits <= 5) {
-                    out.print("{d: <5}", .{n}) catch unreachable;
+                if (digits <= 12) {
+                    out.print("{d: <12}", .{n}) catch unreachable;
                 } else {
-                    out.print(" ... ", .{}) catch unreachable;
+                    out.print(" ...    ", .{}) catch unreachable;
                 }
             },
-            .booln => |b| out.print("{: <5}", .{b}) catch unreachable,
+            .booln => |b| out.print("{: <12}", .{b}) catch unreachable,
             .nil => out.print("(nil)", .{}) catch unreachable,
             .obj => |o| {
                 switch (o.typ) {
                     .string => {
                         const buf = val.as_string().buf;
-                        if (buf.len <= 5) {
-                            out.print("{s: <5}", .{buf}) catch unreachable;
+                        if (buf.len <= 12) {
+                            out.print("{s: <12}", .{buf}) catch unreachable;
                         } else {
-                            out.print(" ... ", .{}) catch unreachable;
+                            out.print("{s}.", .{buf[0..11]}) catch unreachable;
                         }
                     },
                 }

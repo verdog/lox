@@ -14,7 +14,6 @@ ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
 pool: vl.ObjPool = undefined,
-
 pub fn init(alctr: std.mem.Allocator) VM {
     return .{
         .pool = vl.ObjPool.init(alctr),
@@ -151,6 +150,15 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 if (vm.pool.globals.get(name)) |val| {
                     vm.stack_push(val);
                 } else {
+                    vm.print_runtime_error(out, "Undefined variable '{s}'.", .{name.buf});
+                    return Error.runtime_error;
+                }
+            },
+            .set_global => {
+                const name = vm.read_constant().as_string();
+                if (vm.pool.globals.set(name, vm.stack_peek(0))) {
+                    const delete_result = vm.pool.globals.delete(name);
+                    std.debug.assert(delete_result);
                     vm.print_runtime_error(out, "Undefined variable '{s}'.", .{name.buf});
                     return Error.runtime_error;
                 }

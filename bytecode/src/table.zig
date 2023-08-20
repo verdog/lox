@@ -65,11 +65,7 @@ pub const Table = struct {
         if (t.count == 0) return false;
 
         var find_result = t.find_entry(t.entries, key);
-        if (find_result.entry.key) |key_mem| {
-            key_mem.deinit(t.alctr);
-            t.alctr.destroy(key_mem);
-            find_result.entry.value.deinit(t.alctr);
-
+        if (find_result.entry.key) |_| {
             find_result.entry.key = null;
             find_result.entry.value = vl.Value{ .booln = true }; // tombstone
             return true;
