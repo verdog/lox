@@ -14,6 +14,7 @@ ip: usize = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
 pool: vl.ObjPool = undefined,
+
 pub fn init(alctr: std.mem.Allocator) VM {
     return .{
         .pool = vl.ObjPool.init(alctr),
@@ -25,7 +26,7 @@ pub fn deinit(vm: VM) void {
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
-    var ch = Chunk.init(alctr);
+    var ch = Chunk.init(alctr, source_text);
     defer ch.deinit();
 
     const compile_result = cpl.compile(source_text, &ch, &vm.pool, out);
@@ -45,6 +46,7 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
 fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
     while (true) {
         if (dbg.options.trace_execution) {
+            dbg.Disassembler.line(vm.chunk, vm.ip, out);
             // trace instruction
             _ = dbg.Disassembler.instruction(vm.chunk, vm.ip, out);
             { // trace stack

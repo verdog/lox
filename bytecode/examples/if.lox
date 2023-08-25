@@ -1,0 +1,28 @@
+var t = true;
+var f = false;
+if (t) {
+  print 1;
+}
+
+if (t) {
+  print 2;
+} else {
+  print "x";
+}
+
+if (f) {
+  print "x";
+} else {
+  print 3;
+}
+
+if (t and t) print 4;
+if (t or t) print 5;
+if (t and f) print "x";
+if (f and t) print "x";
+if (t or f) print 6;
+if (f or t) print 7;
+if (f and f) print "x";
+if (f or f) print "x";
+
+if (f or f or f or t) print 8;

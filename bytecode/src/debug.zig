@@ -16,6 +16,7 @@ pub const Disassembler = struct {
 
         var offset = @as(usize, 0);
         while (offset < ch.code.items.len) {
+            line(ch, offset, out);
             offset = instruction(ch, offset, out);
             out.print("\n", .{}) catch unreachable;
         }
@@ -38,6 +39,12 @@ pub const Disassembler = struct {
             out.print("-", .{}) catch unreachable;
         }
         out.print("\n", .{}) catch unreachable;
+    }
+
+    pub fn line(ch: Chunk, offset: usize, out: anytype) void {
+        if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {} else {
+            out.print("\n        > {s}\n", .{ch.get_source_line(@intCast(ch.lines.items[offset]))}) catch unreachable;
+        }
     }
 
     pub fn instruction(ch: Chunk, offset: usize, out: anytype) usize {

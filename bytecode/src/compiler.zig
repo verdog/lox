@@ -242,6 +242,7 @@ fn Parser(comptime Context: type) type {
     return struct {
         scanner: Scanner,
         compiler: Compiler,
+        current_chunk: *Chunk,
         previous: Token,
         current: Token,
         pool: *vl.ObjPool,
@@ -251,10 +252,11 @@ fn Parser(comptime Context: type) type {
 
         const P = @This();
 
-        pub fn init(scanner: Scanner, pool: *vl.ObjPool, ctx: Context) P {
+        pub fn init(scanner: Scanner, ch: *Chunk, pool: *vl.ObjPool, ctx: Context) P {
             return .{
                 .scanner = scanner,
                 .compiler = Compiler{},
+                .current_chunk = ch,
                 .previous = undefined,
                 .current = undefined,
                 .pool = pool,
@@ -396,7 +398,7 @@ fn Parser(comptime Context: type) type {
             if (p.match(.eql)) {
                 p.expression();
             } else {
-                emit_op(.nil);
+                p.emit_op(.nil);
             }
             p.consume(.semicolon, "Expected ';' after variable declaration.");
 
@@ -424,7 +426,7 @@ fn Parser(comptime Context: type) type {
                 return;
             }
 
-            emit_bytes(@intFromEnum(OpCode.define_global), global);
+            p.emit_bytes(@intFromEnum(OpCode.define_global), global);
         }
 
         fn declare_variable(p: *P) void {
@@ -461,7 +463,7 @@ fn Parser(comptime Context: type) type {
         }
 
         fn identifier_constant(p: *P, name: Token) u8 {
-            return current_chunk.add_constant(p.pool.make_string_value(name.lexeme));
+            return p.current_chunk.add_constant(p.pool.make_string_value(name.lexeme));
         }
 
         pub fn statement(p: *P) void {
@@ -481,13 +483,13 @@ fn Parser(comptime Context: type) type {
         pub fn print_statement(p: *P) void {
             p.expression();
             p.consume(.semicolon, "Expected ';' after value.");
-            emit_op(.print);
+            p.emit_op(.print);
         }
 
         pub fn expression_statement(p: *P) void {
             p.expression();
             p.consume(.semicolon, "Expected ';' after expression.");
-            emit_op(.pop);
+            p.emit_op(.pop);
         }
 
         pub fn if_statement(p: *P) void {
@@ -495,18 +497,18 @@ fn Parser(comptime Context: type) type {
             p.expression();
             p.consume(.rparen, "Expected ')' after condition.");
 
-            const then_jump = emit_jump(.jump_if_false);
-            emit_op(.pop); // clean up condition result
+            const then_jump = p.emit_jump(.jump_if_false);
+            p.emit_op(.pop); // clean up condition result
 
             p.statement(); // then block
-            const else_jump = emit_jump(.jump);
+            const else_jump = p.emit_jump(.jump);
 
-            patch_jump(then_jump);
-            emit_op(.pop); // clean up condition result
+            p.patch_jump(then_jump);
+            p.emit_op(.pop); // clean up condition result
 
             if (p.match(.@"else")) p.statement();
 
-            patch_jump(else_jump);
+            p.patch_jump(else_jump);
         }
 
         pub fn block_statement(p: *P) void {
@@ -527,7 +529,7 @@ fn Parser(comptime Context: type) type {
             while (p.compiler.locals_count > 0 and
                 p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth > p.compiler.scope_depth)
             {
-                emit_op(.pop);
+                p.emit_op(.pop);
                 p.compiler.locals_count -= 1;
             }
         }
@@ -552,9 +554,9 @@ fn Parser(comptime Context: type) type {
 
             if (can_assign and p.match(.eql)) {
                 p.expression();
-                emit_bytes(set_op, @intCast(arg));
+                p.emit_bytes(set_op, @intCast(arg));
             } else {
-                emit_bytes(get_op, @intCast(arg));
+                p.emit_bytes(get_op, @intCast(arg));
             }
         }
 
@@ -580,22 +582,22 @@ fn Parser(comptime Context: type) type {
         pub fn number(p: *P, can_assign: bool) void {
             _ = can_assign;
             const value: Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
-            emit_constant(value);
+            p.emit_constant(value);
         }
 
         pub fn literal(p: *P, can_assign: bool) void {
             _ = can_assign;
             switch (p.previous.typ) {
-                .false => emit_byte(@intFromEnum(OpCode.false)),
-                .true => emit_byte(@intFromEnum(OpCode.true)),
-                .nil => emit_byte(@intFromEnum(OpCode.nil)),
+                .false => p.emit_byte(@intFromEnum(OpCode.false)),
+                .true => p.emit_byte(@intFromEnum(OpCode.true)),
+                .nil => p.emit_byte(@intFromEnum(OpCode.nil)),
                 else => unreachable,
             }
         }
 
         pub fn string(p: *P, can_assign: bool) void {
             _ = can_assign;
-            emit_constant(p.pool.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1]));
+            p.emit_constant(p.pool.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1]));
         }
 
         pub fn grouping(p: *P, can_assign: bool) void {
@@ -613,8 +615,8 @@ fn Parser(comptime Context: type) type {
 
             // negate it
             switch (typ) {
-                .minus => emit_byte(@intFromEnum(OpCode.negate)),
-                .bang => emit_byte(@intFromEnum(OpCode.not)),
+                .minus => p.emit_byte(@intFromEnum(OpCode.negate)),
+                .bang => p.emit_byte(@intFromEnum(OpCode.not)),
                 else => unreachable,
             }
         }
@@ -626,38 +628,38 @@ fn Parser(comptime Context: type) type {
             p.parse_precedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
             switch (typ) {
-                .plus => emit_byte(@intFromEnum(OpCode.add)),
-                .minus => emit_byte(@intFromEnum(OpCode.subtract)),
-                .star => emit_byte(@intFromEnum(OpCode.multiply)),
-                .slash => emit_byte(@intFromEnum(OpCode.divide)),
-                .bang_eql => emit_ops(.equal, .not),
-                .eql_eql => emit_op(.equal),
-                .greater => emit_op(.greater),
-                .greater_eql => emit_ops(.less, .not),
-                .less => emit_op(.less),
-                .less_eql => emit_ops(.greater, .not),
+                .plus => p.emit_byte(@intFromEnum(OpCode.add)),
+                .minus => p.emit_byte(@intFromEnum(OpCode.subtract)),
+                .star => p.emit_byte(@intFromEnum(OpCode.multiply)),
+                .slash => p.emit_byte(@intFromEnum(OpCode.divide)),
+                .bang_eql => p.emit_ops(.equal, .not),
+                .eql_eql => p.emit_op(.equal),
+                .greater => p.emit_op(.greater),
+                .greater_eql => p.emit_ops(.less, .not),
+                .less => p.emit_op(.less),
+                .less_eql => p.emit_ops(.greater, .not),
                 else => unreachable,
             }
         }
 
         fn @"and"(p: *P, can_assign: bool) void {
             _ = can_assign;
-            const end_jump = emit_jump(.jump_if_false);
-            emit_op(.pop);
+            const end_jump = p.emit_jump(.jump_if_false);
+            p.emit_op(.pop);
             p.parse_precedence(.@"and");
-            patch_jump(end_jump);
+            p.patch_jump(end_jump);
         }
 
         fn @"or"(p: *P, can_assign: bool) void {
             _ = can_assign;
-            const else_jump = emit_jump(.jump_if_false);
-            const end_jump = emit_jump(.jump);
+            const else_jump = p.emit_jump(.jump_if_false);
+            const end_jump = p.emit_jump(.jump);
 
-            patch_jump(else_jump);
-            emit_op(.pop);
+            p.patch_jump(else_jump);
+            p.emit_op(.pop);
 
             p.parse_precedence(.@"or");
-            patch_jump(end_jump);
+            p.patch_jump(end_jump);
         }
 
         // used to fill in unimplemented entries in the rules table
@@ -718,61 +720,54 @@ fn Parser(comptime Context: type) type {
 
             p.ctx.out.print(": {s}\n", .{message}) catch unreachable;
         }
+
+        fn emit_byte(p: *P, b: u8) void {
+            p.current_chunk.write(b, p.previous.line);
+        }
+
+        fn emit_bytes(p: *P, b1: u8, b2: u8) void {
+            p.current_chunk.write(b1, p.previous.line);
+            p.current_chunk.write(b2, p.previous.line);
+        }
+
+        fn emit_op(p: *P, o: OpCode) void {
+            p.emit_byte(@intFromEnum(o));
+        }
+
+        fn emit_ops(p: *P, o1: OpCode, o2: OpCode) void {
+            p.emit_bytes(@intFromEnum(o1), @intFromEnum(o2));
+        }
+
+        fn emit_constant(p: *P, value: Value) void {
+            p.emit_bytes(@intFromEnum(OpCode.constant), p.current_chunk.add_constant(value));
+        }
+
+        fn emit_jump(p: *P, o: OpCode) i32 {
+            p.emit_op(o);
+            p.emit_bytes(0xff, 0xff); // placeholder to be patched later
+            return @as(i32, @intCast(p.current_chunk.code.items.len)) - 2;
+        }
+
+        fn patch_jump(p: *P, offset: i32) void {
+            // -2 to include the 2 byte jump amount itself, which will be read before the actual jump
+            const jump_length = @as(usize, @intCast(@as(i32, @intCast(p.current_chunk.code.items.len)) - offset - 2));
+
+            if (jump_length > std.math.maxInt(u16)) {
+                // somehow error here...
+                // error("Too much code to jump over".);
+                unreachable;
+            }
+
+            p.current_chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
+            p.current_chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
+        }
     };
-}
-
-// XXX going by the book for now, but eventually fix up this global variable stuff...
-var current_chunk: *Chunk = undefined;
-
-fn emit_byte(b: u8) void {
-    // XXX in the book this grabs the line number from the global parser...
-    current_chunk.write(b, 1);
-}
-
-fn emit_bytes(b1: u8, b2: u8) void {
-    // XXX in the book this grabs the line number from the global parser...
-    current_chunk.write(b1, 1);
-    current_chunk.write(b2, 1);
-}
-
-fn emit_op(o: OpCode) void {
-    emit_byte(@intFromEnum(o));
-}
-
-fn emit_ops(o1: OpCode, o2: OpCode) void {
-    emit_bytes(@intFromEnum(o1), @intFromEnum(o2));
-}
-
-fn emit_constant(value: Value) void {
-    emit_bytes(@intFromEnum(OpCode.constant), current_chunk.add_constant(value));
-}
-
-fn emit_jump(o: OpCode) i32 {
-    emit_op(o);
-    emit_bytes(0xff, 0xff); // placeholder to be patched later
-    return @as(i32, @intCast(current_chunk.code.items.len)) - 2;
-}
-
-fn patch_jump(offset: i32) void {
-    // -2 to include the 2 byte jump amount itself, which will be read before the actual jump
-    const jump_length = @as(usize, @intCast(@as(i32, @intCast(current_chunk.code.items.len)) - offset - 2));
-
-    if (jump_length > std.math.maxInt(u16)) {
-        // somehow error here...
-        // error("Too much code to jump over".);
-        unreachable;
-    }
-
-    current_chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
-    current_chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
 }
 
 pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_printer: anytype) bool {
     var s = Scanner.init(source_text);
     const ctx = .{ .out = err_printer };
-    var p = Parser(@TypeOf(ctx)).init(s, pool, ctx);
-
-    current_chunk = ch;
+    var p = Parser(@TypeOf(ctx)).init(s, ch, pool, ctx);
 
     p.advance();
     while (!p.match(.eof)) {
@@ -781,10 +776,10 @@ pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_print
 
     // "endCompiler()"
     //   "emitReturn()"
-    emit_byte(@intFromEnum(OpCode.@"return"));
+    p.emit_byte(@intFromEnum(OpCode.@"return"));
 
     if (dbg.options.print_code and !p.had_error) {
-        dbg.Disassembler.chunk(current_chunk.*, "bytecode", err_printer);
+        dbg.Disassembler.chunk(p.current_chunk.*, "bytecode", err_printer);
     }
 
     return !p.had_error;
