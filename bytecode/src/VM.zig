@@ -163,6 +163,14 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                     return Error.runtime_error;
                 }
             },
+            .get_local => {
+                const slot = vm.read_byte();
+                vm.stack_push(vm.stack[slot]);
+            },
+            .set_local => {
+                const slot = vm.read_byte();
+                vm.stack[slot] = vm.stack_peek(0);
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }

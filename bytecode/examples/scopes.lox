@@ -1,0 +1,15 @@
+var global = "i'm a global";
+
+{
+  var local = "i'm a local";
+  print local;
+  {
+    var local = "i'm a local that's shadowing";
+    var nothing;
+    print local;
+    print nothing;
+    local = "i'm a local that's shadowing with a brand new value";
+    print local;
+  }
+  print local;
+}

@@ -225,9 +225,23 @@ const Token = struct {
     line: i32,
 };
 
+const Local = struct {
+    name: Token,
+    depth: i32,
+};
+
+const Compiler = struct {
+    locals: [locals_capacity]Local = undefined,
+    locals_count: i16 = 0,
+    scope_depth: i32 = 0,
+
+    const locals_capacity = std.math.maxInt(u8) + 1;
+};
+
 fn Parser(comptime Context: type) type {
     return struct {
         scanner: Scanner,
+        compiler: Compiler,
         previous: Token,
         current: Token,
         pool: *vl.ObjPool,
@@ -240,6 +254,7 @@ fn Parser(comptime Context: type) type {
         pub fn init(scanner: Scanner, pool: *vl.ObjPool, ctx: Context) P {
             return .{
                 .scanner = scanner,
+                .compiler = Compiler{},
                 .previous = undefined,
                 .current = undefined,
                 .pool = pool,
@@ -390,21 +405,72 @@ fn Parser(comptime Context: type) type {
 
         fn parse_variable(p: *P, err_msg: []const u8) u8 {
             p.consume(.identifier, err_msg);
+
+            p.declare_variable();
+            // locals are not looked up by name, so no need to fall into
+            // identifier_constant if we're not in global scope. 0 is a dummy value.
+            if (p.compiler.scope_depth > 0) return 0;
+
             return p.identifier_constant(p.previous);
+        }
+
+        fn define_variable(p: *P, global: u8) void {
+            // if we're not in global scope, the vm has already executed the variables
+            // initializer and placed the value on to the top of the stack. new variables
+            // are stored on the top of the stack, so we just need to mark it ready for
+            // use.
+            if (p.compiler.scope_depth > 0) {
+                p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth = p.compiler.scope_depth;
+                return;
+            }
+
+            emit_bytes(@intFromEnum(OpCode.define_global), global);
+        }
+
+        fn declare_variable(p: *P) void {
+            if (p.compiler.scope_depth == 0) return;
+
+            const name = p.previous;
+
+            {
+                var i = p.compiler.locals_count - 1;
+                while (i >= 0) : (i -= 1) {
+                    var local = &p.compiler.locals[@intCast(i)];
+                    if (local.depth != -1 and local.depth < p.compiler.scope_depth) {
+                        break;
+                    }
+
+                    if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
+                        p.print_error("Already a variable with this name in this scope.");
+                    }
+                }
+            }
+
+            p.add_local(name);
+        }
+
+        fn add_local(p: *P, name: Token) void {
+            if (p.compiler.locals_count == Compiler.locals_capacity) {
+                p.print_error("Too many local variables in function.");
+                return;
+            }
+            var new_local_mem = &p.compiler.locals[@intCast(p.compiler.locals_count)];
+            p.compiler.locals_count += 1;
+            new_local_mem.name = name;
+            new_local_mem.depth = -1; // -1 means uninitialized
         }
 
         fn identifier_constant(p: *P, name: Token) u8 {
             return current_chunk.add_constant(p.pool.make_string_value(name.lexeme));
         }
 
-        fn define_variable(p: *P, global: u8) void {
-            _ = p;
-            emit_bytes(@intFromEnum(OpCode.define_global), global);
-        }
-
         pub fn statement(p: *P) void {
             if (p.match(.print)) {
                 p.print_statement();
+            } else if (p.match(.lbrace)) {
+                p.begin_scope();
+                p.block_statement();
+                p.end_scope();
             } else {
                 p.expression_statement();
             }
@@ -422,18 +488,68 @@ fn Parser(comptime Context: type) type {
             emit_op(.pop);
         }
 
+        pub fn block_statement(p: *P) void {
+            while (!p.check(.rbrace) and !p.check(.eof)) {
+                p.declaration();
+            }
+
+            p.consume(.rbrace, "Expected '}' after block.");
+        }
+
+        fn begin_scope(p: *P) void {
+            p.compiler.scope_depth += 1;
+        }
+
+        fn end_scope(p: *P) void {
+            p.compiler.scope_depth -= 1;
+
+            while (p.compiler.locals_count > 0 and
+                p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth > p.compiler.scope_depth)
+            {
+                emit_op(.pop);
+                p.compiler.locals_count -= 1;
+            }
+        }
+
         pub fn variable(p: *P, can_assign: bool) void {
             p.named_variable(p.previous, can_assign);
         }
 
         fn named_variable(p: *P, name: Token, can_assign: bool) void {
-            const arg = p.identifier_constant(name);
+            var get_op: u8 = undefined;
+            var set_op: u8 = undefined;
+            var arg = p.resolve_local(name);
+
+            if (arg != -1) {
+                get_op = @intFromEnum(OpCode.get_local);
+                set_op = @intFromEnum(OpCode.set_local);
+            } else {
+                arg = p.identifier_constant(name);
+                get_op = @intFromEnum(OpCode.get_global);
+                set_op = @intFromEnum(OpCode.set_global);
+            }
+
             if (can_assign and p.match(.eql)) {
                 p.expression();
-                emit_bytes(@intFromEnum(OpCode.set_global), arg);
+                emit_bytes(set_op, @intCast(arg));
             } else {
-                emit_bytes(@intFromEnum(OpCode.get_global), arg);
+                emit_bytes(get_op, @intCast(arg));
             }
+        }
+
+        fn resolve_local(p: *P, name: Token) i16 {
+            var i = p.compiler.locals_count - 1;
+            while (i >= 0) : (i -= 1) {
+                const local = &p.compiler.locals[@intCast(i)];
+                if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
+                    if (local.depth == -1) {
+                        p.print_error("Can't read local variable in its own initializer.");
+                    }
+                    return i;
+                }
+            }
+
+            return -1;
         }
 
         pub fn expression(p: *P) void {

@@ -73,6 +73,11 @@ pub const Disassembler = struct {
             .set_global,
             .constant,
             => return constant_inst(opcode, ch, offset, out),
+
+            .get_local,
+            .set_local,
+            => return byte_inst(opcode, ch, offset, out),
+
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;
@@ -113,6 +118,12 @@ pub const Disassembler = struct {
                 }
             },
         }
+        return offset + 2;
+    }
+
+    fn byte_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
+        const slot = ch.code.items[offset + 1];
+        out.print("{s: <14} {d: <16}", .{ @tagName(opcode), slot }) catch unreachable;
         return offset + 2;
     }
 };

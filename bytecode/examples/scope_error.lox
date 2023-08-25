@@ -1,0 +1,12 @@
+var a = 1;
+
+{
+  // error
+  var a = a;
+}
+
+{
+  // error
+  var b = a;
+  var b = a;
+}
