@@ -309,7 +309,7 @@ fn Parser(comptime Context: type) type {
                 .identifier => .{ .prefix = P.variable, .infix = P.unimpl, .precedence = .none },
                 .string => .{ .prefix = P.string, .infix = P.unimpl, .precedence = .none },
                 .number => .{ .prefix = P.number, .infix = P.unimpl, .precedence = .none },
-                // .@"and" => {},
+                .@"and" => .{ .prefix = P.unimpl, .infix = P.@"and", .precedence = .@"and" },
                 // .class => {},
                 // .@"else" => {},
                 .false => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
@@ -317,7 +317,7 @@ fn Parser(comptime Context: type) type {
                 // .@"for" => {},
                 // .@"if" => {},
                 .nil => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
-                // .@"or" => {},
+                .@"or" => .{ .prefix = P.unimpl, .infix = P.@"or", .precedence = .@"or" },
                 // .print => {},
                 // .@"return" => {},
                 // .super => {},
@@ -467,6 +467,8 @@ fn Parser(comptime Context: type) type {
         pub fn statement(p: *P) void {
             if (p.match(.print)) {
                 p.print_statement();
+            } else if (p.match(.@"if")) {
+                p.if_statement();
             } else if (p.match(.lbrace)) {
                 p.begin_scope();
                 p.block_statement();
@@ -486,6 +488,25 @@ fn Parser(comptime Context: type) type {
             p.expression();
             p.consume(.semicolon, "Expected ';' after expression.");
             emit_op(.pop);
+        }
+
+        pub fn if_statement(p: *P) void {
+            p.consume(.lparen, "Expected '(' after 'if'.");
+            p.expression();
+            p.consume(.rparen, "Expected ')' after condition.");
+
+            const then_jump = emit_jump(.jump_if_false);
+            emit_op(.pop); // clean up condition result
+
+            p.statement(); // then block
+            const else_jump = emit_jump(.jump);
+
+            patch_jump(then_jump);
+            emit_op(.pop); // clean up condition result
+
+            if (p.match(.@"else")) p.statement();
+
+            patch_jump(else_jump);
         }
 
         pub fn block_statement(p: *P) void {
@@ -619,6 +640,26 @@ fn Parser(comptime Context: type) type {
             }
         }
 
+        fn @"and"(p: *P, can_assign: bool) void {
+            _ = can_assign;
+            const end_jump = emit_jump(.jump_if_false);
+            emit_op(.pop);
+            p.parse_precedence(.@"and");
+            patch_jump(end_jump);
+        }
+
+        fn @"or"(p: *P, can_assign: bool) void {
+            _ = can_assign;
+            const else_jump = emit_jump(.jump_if_false);
+            const end_jump = emit_jump(.jump);
+
+            patch_jump(else_jump);
+            emit_op(.pop);
+
+            p.parse_precedence(.@"or");
+            patch_jump(end_jump);
+        }
+
         // used to fill in unimplemented entries in the rules table
         fn unimpl(p: *P, can_assign: bool) void {
             _ = can_assign;
@@ -704,6 +745,26 @@ fn emit_ops(o1: OpCode, o2: OpCode) void {
 
 fn emit_constant(value: Value) void {
     emit_bytes(@intFromEnum(OpCode.constant), current_chunk.add_constant(value));
+}
+
+fn emit_jump(o: OpCode) i32 {
+    emit_op(o);
+    emit_bytes(0xff, 0xff); // placeholder to be patched later
+    return @as(i32, @intCast(current_chunk.code.items.len)) - 2;
+}
+
+fn patch_jump(offset: i32) void {
+    // -2 to include the 2 byte jump amount itself, which will be read before the actual jump
+    const jump_length = @as(usize, @intCast(@as(i32, @intCast(current_chunk.code.items.len)) - offset - 2));
+
+    if (jump_length > std.math.maxInt(u16)) {
+        // somehow error here...
+        // error("Too much code to jump over".);
+        unreachable;
+    }
+
+    current_chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
+    current_chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
 }
 
 pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_printer: anytype) bool {

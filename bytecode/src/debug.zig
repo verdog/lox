@@ -2,7 +2,7 @@
 
 pub const DebugOptions = struct {
     trace_execution: bool = true,
-    print_code: bool = false, // it's adequately represented in the exec trace
+    print_code: bool = true,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
 };
 
@@ -78,6 +78,10 @@ pub const Disassembler = struct {
             .set_local,
             => return byte_inst(opcode, ch, offset, out),
 
+            .jump,
+            .jump_if_false,
+            => return jump_inst(opcode, 1, ch, offset, out),
+
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;
@@ -125,6 +129,19 @@ pub const Disassembler = struct {
         const slot = ch.code.items[offset + 1];
         out.print("{s: <14} {d: <16}", .{ @tagName(opcode), slot }) catch unreachable;
         return offset + 2;
+    }
+
+    fn jump_inst(opcode: OpCode, sign: i2, ch: Chunk, offset: usize, out: anytype) usize {
+        const jump = blk: {
+            const hi: u16 = @as(u16, ch.code.items[offset + 1]) << 8;
+            const lo: u16 = ch.code.items[offset + 2];
+            break :blk @as(i32, hi | lo);
+        };
+
+        const dest: usize = @intCast(@as(i64, @intCast(offset + 3)) + sign * jump);
+
+        out.print("{s: <14} 0x{x:0>4} -> 0x{x:0>4}", .{ @tagName(opcode), offset, dest }) catch unreachable;
+        return offset + 3;
     }
 };
 

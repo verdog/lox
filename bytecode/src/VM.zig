@@ -171,15 +171,31 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const slot = vm.read_byte();
                 vm.stack[slot] = vm.stack_peek(0);
             },
+            .jump => {
+                const offset = vm.read_short();
+                vm.ip += offset;
+            },
+            .jump_if_false => {
+                const offset = vm.read_short();
+                if (!vm.stack_peek(0).is_truthy()) vm.ip += offset;
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
 }
 
+// TODO consider combining these read_ functions into single ones that take a type param
 fn read_byte(vm: *VM) u8 {
     const b = vm.chunk.code.items[vm.ip];
     vm.ip += 1;
     return b;
+}
+
+fn read_short(vm: *VM) u16 {
+    const hi: u16 = vm.chunk.code.items[vm.ip];
+    const lo = vm.chunk.code.items[vm.ip + 1];
+    vm.ip += 2;
+    return (hi << 8) | lo;
 }
 
 fn read_constant(vm: *VM) Value {

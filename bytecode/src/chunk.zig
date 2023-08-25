@@ -22,6 +22,8 @@ pub const OpCode = enum(u8) {
     set_global,
     get_local,
     set_local,
+    jump,
+    jump_if_false,
     _,
 };
 
