@@ -779,7 +779,30 @@ pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_print
     p.emit_byte(@intFromEnum(OpCode.@"return"));
 
     if (dbg.options.print_code and !p.had_error) {
-        dbg.Disassembler.chunk(p.current_chunk.*, "compiled bytecode", err_printer);
+        dbg.Disassembler.border("constants table", err_printer);
+        {
+            for (p.current_chunk.constants.items, 0..) |c, i| {
+                err_printer.print("{x:0>2}: ", .{i}) catch unreachable;
+                c.print(err_printer);
+                err_printer.print("\n", .{}) catch unreachable;
+            }
+        }
+
+        dbg.Disassembler.border("compiled bytecode", err_printer);
+        {
+            var it = std.mem.window(u8, p.current_chunk.code.items, 8, 16);
+            var offset: usize = 0;
+            while (it.next()) |win| : (offset += 16) {
+                err_printer.print("0x{x:0>4}: ", .{offset}) catch unreachable;
+                for (win) |b| {
+                    err_printer.print("{x:0>2} ", .{b}) catch unreachable;
+                }
+                err_printer.print("\n", .{}) catch unreachable;
+            }
+        }
+
+        err_printer.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16}\n", .{ "offset", "byte", "line", "meaning", "encoded data" }) catch unreachable;
+        dbg.Disassembler.chunk(p.current_chunk.*, "disassembly", err_printer);
     }
 
     return !p.had_error;

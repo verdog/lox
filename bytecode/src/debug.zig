@@ -17,8 +17,7 @@ pub const Disassembler = struct {
         var offset = @as(usize, 0);
         while (offset < ch.code.items.len) {
             line(ch, offset, out);
-            offset = instruction(ch, offset, out);
-            out.print("\n", .{}) catch unreachable;
+            offset = instruction(ch, offset, null, out);
         }
     }
 
@@ -39,17 +38,34 @@ pub const Disassembler = struct {
         out.print("\n", .{}) catch unreachable;
     }
 
+    fn emit_line(offset: usize, byte: u8, opcode_string: []const u8, extra: []const u8, vm: ?*VM, out: anytype) void {
+        var stack_buf: [1024]u8 = undefined;
+        var stack_str: []u8 = undefined;
+        var fbs = std.io.fixedBufferStream(&stack_buf);
+        var writer = fbs.writer();
+        if (vm) |v| {
+            var stack_idx = @as(usize, 0);
+            while (stack_idx < v.stack_top) : (stack_idx += 1) {
+                writer.print("[ ", .{}) catch unreachable;
+                v.stack[stack_idx].print(writer);
+                writer.print(" ]", .{}) catch unreachable;
+            }
+            stack_str = stack_buf[0..writer.context.pos];
+        } else {
+            stack_str = stack_buf[0..0];
+        }
+
+        out.print("0x{x:0>4} 0x{x:0>2}      {s: <16} {s: <16} | {s} \n", .{ offset, byte, opcode_string, extra, stack_str }) catch unreachable;
+    }
+
     pub fn line(ch: Chunk, offset: usize, out: anytype) void {
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {} else {
             const l = ch.lines.items[offset];
-            out.print("\n {d: >11} {s}\n", .{ @as(usize, @intCast(l)), ch.get_source_line(@intCast(l)) }) catch unreachable;
+            out.print("\n{d: >16} {s}\n", .{ @as(usize, @intCast(l)), ch.get_source_line(@intCast(l)) }) catch unreachable;
         }
     }
 
-    pub fn instruction(ch: Chunk, offset: usize, out: anytype) usize {
-        out.print("0x{x:0>4} ", .{offset}) catch unreachable;
-        out.print("      ", .{}) catch unreachable;
-
+    pub fn instruction(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
         const opcode = @as(OpCode, @enumFromInt(ch.code.items[offset]));
         switch (opcode) {
             .@"return",
@@ -67,21 +83,21 @@ pub const Disassembler = struct {
             .less,
             .greater,
             .pop,
-            => return simple_inst(opcode, offset, out),
+            => return simple_inst(opcode, offset, vm, out),
 
             .define_global,
             .get_global,
             .set_global,
             .constant,
-            => return constant_inst(opcode, ch, offset, out),
+            => return constant_inst(opcode, ch, offset, vm, out),
 
             .get_local,
             .set_local,
-            => return byte_inst(opcode, ch, offset, out),
+            => return byte_inst(opcode, ch, offset, vm, out),
 
             .jump,
             .jump_if_false,
-            => return jump_inst(opcode, 1, ch, offset, out),
+            => return jump_inst(opcode, 1, ch, offset, vm, out),
 
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
@@ -90,58 +106,72 @@ pub const Disassembler = struct {
         }
     }
 
-    fn simple_inst(opcode: OpCode, offset: usize, out: anytype) usize {
-        out.print("{s: <31}", .{@tagName(opcode)}) catch unreachable;
+    fn simple_inst(opcode: OpCode, offset: usize, vm: ?*VM, out: anytype) usize {
+        emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
         return offset + 1;
     }
 
-    fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
+    fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
+        emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+
         const constant_byte = ch.code.items[offset + 1];
-        out.print("{s: <14} {d: <3} ", .{ @tagName(opcode), constant_byte }) catch unreachable;
         const val = ch.constants.items[constant_byte];
-        switch (val) {
-            .number => |n| {
-                const digits = @floor(std.math.log10(n)) + 1;
-                if (digits <= 12) {
-                    out.print("{d: <12}", .{n}) catch unreachable;
-                } else {
-                    out.print(" ...    ", .{}) catch unreachable;
-                }
-            },
-            .booln => |b| out.print("{: <12}", .{b}) catch unreachable,
-            .nil => out.print("(nil)", .{}) catch unreachable,
-            .obj => |o| {
-                switch (o.typ) {
-                    .string => {
-                        const buf = val.as_string().buf;
-                        if (buf.len <= 12) {
-                            out.print("{s: <12}", .{buf}) catch unreachable;
-                        } else {
-                            out.print("{s}.", .{buf[0..11]}) catch unreachable;
-                        }
-                    },
-                }
-            },
-        }
-        return offset + 2;
-    }
-
-    fn byte_inst(opcode: OpCode, ch: Chunk, offset: usize, out: anytype) usize {
-        const slot = ch.code.items[offset + 1];
-        out.print("{s: <14} {d: <16}", .{ @tagName(opcode), slot }) catch unreachable;
-        return offset + 2;
-    }
-
-    fn jump_inst(opcode: OpCode, sign: i2, ch: Chunk, offset: usize, out: anytype) usize {
-        const jump = blk: {
-            const hi: u16 = @as(u16, ch.code.items[offset + 1]) << 8;
-            const lo: u16 = ch.code.items[offset + 2];
-            break :blk @as(i32, hi | lo);
+        var val_buf: [16]u8 = undefined;
+        const val_str = blk: {
+            switch (val) {
+                .number => |n| {
+                    const digits = @floor(std.math.log10(n)) + 1;
+                    if (digits <= 16) {
+                        break :blk std.fmt.bufPrint(&val_buf, "{d: <16}", .{n}) catch unreachable;
+                    } else {
+                        break :blk std.fmt.bufPrint(&val_buf, " ...    ", .{}) catch unreachable;
+                    }
+                },
+                .booln => |b| break :blk std.fmt.bufPrint(&val_buf, "{: <16}", .{b}) catch unreachable,
+                .nil => break :blk std.fmt.bufPrint(&val_buf, "(nil)", .{}) catch unreachable,
+                .obj => |o| {
+                    switch (o.typ) {
+                        .string => {
+                            const buf = val.as_string().buf;
+                            const spaces = "                       ";
+                            if (buf.len <= 14) {
+                                break :blk std.fmt.bufPrint(&val_buf, "\"{s}\"{s}", .{ buf, spaces[0..(14 - buf.len)] }) catch unreachable;
+                            } else {
+                                break :blk std.fmt.bufPrint(&val_buf, "\"{s}\".", .{buf[0..13]}) catch unreachable;
+                            }
+                        },
+                    }
+                },
+            }
         };
 
+        emit_line(offset + 1, constant_byte, "  (constant)", val_str, vm, out);
+        return offset + 2;
+    }
+
+    fn byte_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
+        emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+
+        const slot = ch.code.items[offset + 1];
+        var slot_buf: [16]u8 = undefined;
+        const slot_str = std.fmt.bufPrint(&slot_buf, "{d}", .{slot}) catch unreachable;
+        emit_line(offset + 1, slot, "  (stack index)", slot_str, vm, out);
+        return offset + 2;
+    }
+
+    fn jump_inst(opcode: OpCode, sign: i2, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
+        const hi_byte = ch.code.items[offset + 1];
+        const hi: u16 = @as(u16, hi_byte) << 8;
+        const lo: u16 = ch.code.items[offset + 2];
+        const jump = @as(i32, hi | lo);
         const dest: usize = @intCast(@as(i64, @intCast(offset + 3)) + sign * jump);
 
-        out.print("{s: <14} 0x{x:0>4} -> 0x{x:0>4}", .{ @tagName(opcode), offset, dest }) catch unreachable;
+        var buf: [16]u8 = undefined;
+        const str = std.fmt.bufPrint(&buf, "0x{x:0>4} -> 0x{x:0>4}", .{ offset, dest }) catch unreachable;
+
+        emit_line(offset, @intFromEnum(opcode), @tagName(opcode), str, vm, out);
+        emit_line(offset + 1, hi_byte, "  (jump hi byte)", "", vm, out);
+        emit_line(offset + 2, @truncate(lo), "  (jump lo byte)", "", vm, out);
         return offset + 3;
     }
 };
@@ -183,6 +213,7 @@ test "disassembler header length: odd length name" {
 const std = @import("std");
 
 const vl = @import("value.zig");
+const VM = @import("VM.zig").VM;
 
 const OpCode = @import("chunk.zig").OpCode;
 const Chunk = @import("chunk.zig").Chunk;

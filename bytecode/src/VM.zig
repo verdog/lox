@@ -1,6 +1,6 @@
 //! ...
 
-const VM = @This();
+pub const VM = @This();
 
 pub const Error = error{
     compile_error,
@@ -39,7 +39,7 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
 
     if (dbg.options.trace_execution) {
         dbg.Disassembler.border("execution trace", out);
-        out.print("{s: <8}{s: <5}{s: <33}{s: <5}\n", .{ "addr", "line", "source/bytecode", "stack" }) catch unreachable;
+        out.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16} {s: <5}\n", .{ "offset", "byte", "line", "meaning", "encoded data", "stack before inst. exec." }) catch unreachable;
     }
     return vm.run(alctr, out);
 }
@@ -49,17 +49,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
         if (dbg.options.trace_execution) {
             dbg.Disassembler.line(vm.chunk, vm.ip, out);
             // trace instruction
-            _ = dbg.Disassembler.instruction(vm.chunk, vm.ip, out);
-            { // trace stack
-                out.print(" | ", .{}) catch unreachable;
-                var stack_idx = @as(usize, 0);
-                while (stack_idx < vm.stack_top) : (stack_idx += 1) {
-                    out.print("[ ", .{}) catch unreachable;
-                    vm.stack[stack_idx].print(out);
-                    out.print(" ]", .{}) catch unreachable;
-                }
-                out.print("\n", .{}) catch unreachable;
-            }
+            _ = dbg.Disassembler.instruction(vm.chunk, vm.ip, vm, out);
         }
         const inst = @as(OpCode, @enumFromInt(vm.read_byte()));
 
