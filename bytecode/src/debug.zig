@@ -20,11 +20,9 @@ pub const Disassembler = struct {
             offset = instruction(ch, offset, out);
             out.print("\n", .{}) catch unreachable;
         }
-
-        border(name, out);
     }
 
-    fn border(name: []const u8, out: anytype) void {
+    pub fn border(name: []const u8, out: anytype) void {
         var decor_len = border_len / 2 - name.len / 2 - 1;
         var decor = @as(usize, 0);
 
@@ -43,18 +41,14 @@ pub const Disassembler = struct {
 
     pub fn line(ch: Chunk, offset: usize, out: anytype) void {
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {} else {
-            out.print("\n        > {s}\n", .{ch.get_source_line(@intCast(ch.lines.items[offset]))}) catch unreachable;
+            const l = ch.lines.items[offset];
+            out.print("\n {d: >11} {s}\n", .{ @as(usize, @intCast(l)), ch.get_source_line(@intCast(l)) }) catch unreachable;
         }
     }
 
     pub fn instruction(ch: Chunk, offset: usize, out: anytype) usize {
         out.print("0x{x:0>4} ", .{offset}) catch unreachable;
-
-        if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {
-            out.print(" |    ", .{}) catch unreachable;
-        } else {
-            out.print(" {d: <4} ", .{ch.lines.items[offset]}) catch unreachable;
-        }
+        out.print("      ", .{}) catch unreachable;
 
         const opcode = @as(OpCode, @enumFromInt(ch.code.items[offset]));
         switch (opcode) {

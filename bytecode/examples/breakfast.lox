@@ -1,6 +1,11 @@
-var food = "waffles";
+var food = "toast";
 var beverage = "coffee";
-var breakfast = food;
-breakfast = breakfast + " with " + beverage;
+
+var day = "friday";
+if (day == "saturday") {
+  food = "waffles";
+}
+
+var breakfast = food + " with " + beverage;
 
 print breakfast;

@@ -48,6 +48,9 @@ fn run_file(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
+    dbg.Disassembler.border(path, ux.out);
+    ux.out.print("{s}\n", .{bytes}) catch unreachable;
+
     var vm = VM.init(heap);
     defer vm.deinit();
 

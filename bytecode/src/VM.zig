@@ -38,7 +38,8 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     vm.stack_reset();
 
     if (dbg.options.trace_execution) {
-        out.print("Execution trace:\n", .{}) catch unreachable;
+        dbg.Disassembler.border("execution trace", out);
+        out.print("{s: <8}{s: <5}{s: <33}{s: <5}\n", .{ "addr", "line", "source/bytecode", "stack" }) catch unreachable;
     }
     return vm.run(alctr, out);
 }

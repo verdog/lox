@@ -779,7 +779,7 @@ pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_print
     p.emit_byte(@intFromEnum(OpCode.@"return"));
 
     if (dbg.options.print_code and !p.had_error) {
-        dbg.Disassembler.chunk(p.current_chunk.*, "bytecode", err_printer);
+        dbg.Disassembler.chunk(p.current_chunk.*, "compiled bytecode", err_printer);
     }
 
     return !p.had_error;
