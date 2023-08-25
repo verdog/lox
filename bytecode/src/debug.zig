@@ -13,7 +13,7 @@ pub const Disassembler = struct {
 
     pub fn chunk(ch: Chunk, name: []const u8, out: anytype) void {
         border(name, out);
-
+        out.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16}\n", .{ "offset", "byte", "line", "meaning", "encoded data" }) catch unreachable;
         var offset = @as(usize, 0);
         while (offset < ch.code.items.len) {
             line(ch, offset, out);
