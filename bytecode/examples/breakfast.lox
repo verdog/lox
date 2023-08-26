@@ -1,7 +1,7 @@
 var food = "toast";
 var beverage = "coffee";
 
-var day = "friday";
+var day = "saturday";
 if (day == "saturday") {
   food = "waffles";
 }

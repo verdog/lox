@@ -802,7 +802,6 @@ pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_print
         }
 
         dbg.Disassembler.chunk(p.current_chunk.*, "disassembly", err_printer);
-        err_printer.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16}\n", .{ "offset", "byte", "line", "meaning", "encoded data" }) catch unreachable;
     }
 
     return !p.had_error;
