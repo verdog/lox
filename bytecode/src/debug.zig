@@ -99,6 +99,8 @@ pub const Disassembler = struct {
             .jump_if_false,
             => return jump_inst(opcode, 1, ch, offset, vm, out),
 
+            .loop => return jump_inst(opcode, -1, ch, offset, vm, out),
+
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;

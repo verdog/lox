@@ -43,8 +43,8 @@ const Scanner = struct {
             // single or double character tokens
             '!' => return s.make_token(if (s.match('=')) .bang_eql else .bang),
             '=' => return s.make_token(if (s.match('=')) .eql_eql else .eql),
-            '<' => return s.make_token(if (s.match('=')) .less else .less_eql),
-            '>' => return s.make_token(if (s.match('=')) .greater else .greater_eql),
+            '<' => return s.make_token(if (s.match('=')) .less_eql else .less),
+            '>' => return s.make_token(if (s.match('=')) .greater_eql else .greater),
 
             // other
             '"' => return s.string(),
@@ -471,6 +471,8 @@ fn Parser(comptime Context: type) type {
                 p.print_statement();
             } else if (p.match(.@"if")) {
                 p.if_statement();
+            } else if (p.match(.@"while")) {
+                p.while_statement();
             } else if (p.match(.lbrace)) {
                 p.begin_scope();
                 p.block_statement();
@@ -509,6 +511,21 @@ fn Parser(comptime Context: type) type {
             if (p.match(.@"else")) p.statement();
 
             p.patch_jump(else_jump);
+        }
+
+        fn while_statement(p: *P) void {
+            const loop_start = p.current_chunk.code.items.len;
+            p.consume(.lparen, "Expected '(' after 'if'.");
+            p.expression();
+            p.consume(.rparen, "Expected ')' after condition.");
+
+            const exit_jump = p.emit_jump(.jump_if_false);
+            p.emit_op(.pop); // clean up condition result
+            p.statement(); // inner block
+            p.emit_loop(loop_start);
+
+            p.patch_jump(exit_jump);
+            p.emit_op(.pop);
         }
 
         pub fn block_statement(p: *P) void {
@@ -760,6 +777,15 @@ fn Parser(comptime Context: type) type {
 
             p.current_chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
             p.current_chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
+        }
+
+        fn emit_loop(p: *P, loop_start: usize) void {
+            p.emit_op(.loop);
+
+            const offset = p.current_chunk.code.items.len - loop_start + 2;
+            if (offset > std.math.maxInt(u16)) p.print_error("Loop body too large.");
+
+            p.emit_bytes(@truncate(offset >> 8), @truncate(offset));
         }
     };
 }

@@ -172,6 +172,10 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const offset = vm.read_short();
                 if (!vm.stack_peek(0).is_truthy()) vm.ip += offset;
             },
+            .loop => {
+                const offset = vm.read_short();
+                vm.ip -= offset;
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }

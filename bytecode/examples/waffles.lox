@@ -1,0 +1,8 @@
+var num_waffles = 6;
+
+while (num_waffles > 0) {
+ print "consuming 1 waffle.";
+ num_waffles = num_waffles - 1;
+}
+
+print "no more waffles :(";
