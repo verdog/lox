@@ -469,6 +469,8 @@ fn Parser(comptime Context: type) type {
         pub fn statement(p: *P) void {
             if (p.match(.print)) {
                 p.print_statement();
+            } else if (p.match(.@"for")) {
+                p.for_statement();
             } else if (p.match(.@"if")) {
                 p.if_statement();
             } else if (p.match(.@"while")) {
@@ -492,6 +494,53 @@ fn Parser(comptime Context: type) type {
             p.expression();
             p.consume(.semicolon, "Expected ';' after expression.");
             p.emit_op(.pop);
+        }
+
+        fn for_statement(p: *P) void {
+            p.begin_scope();
+            p.consume(.lparen, "Expected '(' after 'for'.");
+            if (p.match(.semicolon)) {
+                // no initializer present.
+            } else if (p.match(.@"var")) {
+                // includes semicolon
+                p.var_declaration();
+            } else {
+                // includes semicolon and pop instruction
+                p.expression_statement();
+            }
+
+            var loop_start = p.current_chunk.code.items.len;
+            var exit_jump: i32 = -1;
+            if (!p.match(.semicolon)) {
+                p.expression();
+                p.consume(.semicolon, "Expected ';' after loop condition.");
+
+                // jump out of the loop if the condition is false
+                exit_jump = p.emit_jump(.jump_if_false);
+                p.emit_op(.pop);
+            }
+
+            if (!p.match(.rparen)) {
+                const body_jump = p.emit_jump(.jump);
+                const incr_start = p.current_chunk.code.items.len;
+                p.expression();
+                p.emit_op(.pop);
+                p.consume(.rparen, "Expected ')' after for clauses.");
+
+                p.emit_loop(loop_start);
+                loop_start = incr_start;
+                p.patch_jump(body_jump);
+            }
+
+            p.statement();
+            p.emit_loop(loop_start);
+
+            if (exit_jump != -1) {
+                p.patch_jump(exit_jump);
+                p.emit_op(.pop);
+            }
+
+            p.end_scope();
         }
 
         pub fn if_statement(p: *P) void {
