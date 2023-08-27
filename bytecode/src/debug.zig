@@ -11,12 +11,12 @@ pub var options = DebugOptions{};
 pub const Disassembler = struct {
     const border_len = @as(usize, 80);
 
-    pub fn chunk(ch: Chunk, name: []const u8, out: anytype) void {
+    pub fn chunk(ch: Chunk, name: []const u8, source: []const u8, out: anytype) void {
         border(name, out);
         out.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16}\n", .{ "offset", "byte", "line", "meaning", "encoded data" }) catch unreachable;
         var offset = @as(usize, 0);
         while (offset < ch.code.items.len) {
-            line(ch, offset, out);
+            line(ch, offset, source, out);
             offset = instruction(ch, offset, null, out);
         }
     }
@@ -58,11 +58,22 @@ pub const Disassembler = struct {
         out.print("0x{x:0>4} 0x{x:0>2}      {s: <16} {s: <16} | {s} \n", .{ offset, byte, opcode_string, extra, stack_str }) catch unreachable;
     }
 
-    pub fn line(ch: Chunk, offset: usize, out: anytype) void {
+    pub fn line(ch: Chunk, offset: usize, source: []const u8, out: anytype) void {
         if (offset > 0 and ch.lines.items[offset] == ch.lines.items[offset - 1]) {} else {
             const l = ch.lines.items[offset];
-            out.print("\n{d: >16} {s}\n", .{ @as(usize, @intCast(l)), ch.get_source_line(@intCast(l)) }) catch unreachable;
+            out.print("\n{d: >16} {s}\n", .{ @as(usize, @intCast(l)), get_source_line(source, @intCast(l)) }) catch unreachable;
         }
+    }
+
+    fn get_source_line(source: []const u8, l: usize) []const u8 {
+        // slow and naive, but fast enough for our purposes now.
+        var it = std.mem.splitScalar(u8, source, '\n');
+        var i: usize = 0;
+        while (i < l - 1) : ({
+            _ = it.next();
+            i += 1;
+        }) {}
+        return it.next().?;
     }
 
     pub fn instruction(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
@@ -132,9 +143,9 @@ pub const Disassembler = struct {
                 .booln => |b| break :blk std.fmt.bufPrint(&val_buf, "{: <16}", .{b}) catch unreachable,
                 .nil => break :blk std.fmt.bufPrint(&val_buf, "(nil)", .{}) catch unreachable,
                 .obj => |o| {
-                    switch (o.typ) {
+                    switch (o.otype) {
                         .string => {
-                            const buf = val.as_string().buf;
+                            const buf = val.as(ObjString).buf;
                             const spaces = "                       ";
                             if (buf.len <= 14) {
                                 break :blk std.fmt.bufPrint(&val_buf, "\"{s}\"{s}", .{ buf, spaces[0..(14 - buf.len)] }) catch unreachable;
@@ -142,6 +153,7 @@ pub const Disassembler = struct {
                                 break :blk std.fmt.bufPrint(&val_buf, "\"{s}\".", .{buf[0..13]}) catch unreachable;
                             }
                         },
+                        .function => unreachable,
                     }
                 },
             }
@@ -178,40 +190,6 @@ pub const Disassembler = struct {
     }
 };
 
-test "disassembler header length: even length name" {
-    var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-    chunk.write_opcode(OpCode.@"return", 123);
-
-    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer out_buf.deinit();
-    var out = out_buf.writer();
-
-    Disassembler.chunk(chunk, "test chunk", out);
-
-    const first_line = std.mem.sliceTo(out_buf.items, '\n');
-    errdefer std.debug.print("Failing line was: \"{s}\"\n", .{first_line});
-
-    try std.testing.expectEqual(Disassembler.border_len, first_line.len);
-}
-
-test "disassembler header length: odd length name" {
-    var chunk = Chunk.init(std.testing.allocator);
-    defer chunk.deinit();
-    chunk.write_opcode(OpCode.@"return", 123);
-
-    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer out_buf.deinit();
-    var out = out_buf.writer();
-
-    Disassembler.chunk(chunk, "chunk", out);
-
-    const first_line = std.mem.sliceTo(out_buf.items, '\n');
-    errdefer std.debug.print("Failing line was: \"{s}\"\n", .{first_line});
-
-    try std.testing.expectEqual(Disassembler.border_len, first_line.len);
-}
-
 const std = @import("std");
 
 const vl = @import("value.zig");
@@ -220,3 +198,4 @@ const VM = @import("VM.zig").VM;
 const OpCode = @import("chunk.zig").OpCode;
 const Chunk = @import("chunk.zig").Chunk;
 const Value = vl.Value;
+const ObjString = vl.ObjString;

@@ -6,20 +6,6 @@ pub const Value = union(enum) {
     number: f64,
     obj: *Obj,
 
-    pub fn deinit(v: Value, alctr: std.mem.Allocator) void {
-        switch (v) {
-            .obj => |o| {
-                switch (o.typ) {
-                    .string => {
-                        o.deinit(alctr);
-                        alctr.destroy(v.as_string());
-                    },
-                }
-            },
-            else => {}, // nothing to do
-        }
-    }
-
     pub fn is_truthy(v: Value) bool {
         switch (v) {
             .nil => return false,
@@ -38,13 +24,16 @@ pub const Value = union(enum) {
         }
     }
 
-    pub fn is_string(v: Value) bool {
-        return std.meta.activeTag(v) == .obj and v.obj.typ == .string;
+    pub fn is(v: Value, comptime T: type) bool {
+        return std.meta.activeTag(v) == .obj and v.obj.otype == Obj.Type.tag(T);
     }
 
-    pub fn as_string(v: Value) *ObjString {
-        std.debug.assert(std.meta.activeTag(v) == .obj);
-        return v.obj.as_string();
+    pub fn as(v: Value, comptime T: type) *T {
+        return v.obj.as(T);
+    }
+
+    pub fn from(comptime T: type, obj: *T) Value {
+        return Value{ .obj = &obj.obj };
     }
 
     pub fn print(val: Value, out: anytype) void {
@@ -53,10 +42,15 @@ pub const Value = union(enum) {
             .booln => |b| out.print("{}", .{b}) catch unreachable,
             .nil => out.print("(nil)", .{}) catch unreachable,
             .obj => |o| {
-                switch (o.typ) {
+                switch (o.otype) {
                     .string => {
-                        var str = val.as_string();
+                        var str = val.as(ObjString);
                         out.print("{s}", .{str.buf}) catch unreachable;
+                    },
+                    .function => {
+                        var func = val.as(ObjFunction);
+                        const name = if (func.ftype == .script) "<script>" else func.name.buf;
+                        out.print("<fn {s}>", .{name}) catch unreachable;
                     },
                 }
             },
@@ -67,22 +61,41 @@ pub const Value = union(enum) {
 pub const Obj = struct {
     pub const Type = enum {
         string,
+        function,
+
+        pub fn tag(comptime T: type) Type {
+            return switch (T) {
+                ObjString => .string,
+                ObjFunction => .function,
+                else => @compileError("Not an obj type"),
+            };
+        }
+
+        pub fn typ(comptime tg: Type) type {
+            return switch (tg) {
+                .string => ObjString,
+                .function => ObjFunction,
+            };
+        }
     };
 
+    pub fn init_in_place(o: *Obj, typ: Type) void {
+        o.otype = typ;
+        o.next = null;
+    }
+
     pub fn deinit(o: *Obj, alctr: std.mem.Allocator) void {
-        switch (o.typ) {
-            .string => {
-                o.as_string().deinit(alctr);
-            },
+        switch (o.otype) {
+            inline else => |tg| o.as(Type.typ(tg)).deinit(alctr),
         }
     }
 
-    pub fn as_string(o: *Obj) *ObjString {
-        std.debug.assert(o.typ == .string);
-        return @fieldParentPtr(ObjString, "obj", o);
+    pub fn as(o: *Obj, comptime T: type) *T {
+        std.debug.assert(o.otype == Type.tag(T));
+        return @fieldParentPtr(T, "obj", o);
     }
 
-    typ: Type,
+    otype: Type,
     next: ?*Obj,
 };
 
@@ -91,16 +104,59 @@ pub const ObjString = struct {
     buf: []u8,
     hash: u32,
 
-    pub fn deinit(os: ObjString, alctr: std.mem.Allocator) void {
-        alctr.free(os.buf);
+    pub fn alloc(chars: []u8, alctr: std.mem.Allocator) *ObjString {
+        var obj_s = alctr.create(ObjString) catch @panic("OOM");
+        obj_s.init_in_place(chars, tbl.hash(chars));
+        return obj_s;
     }
 
-    pub fn init_in_place(os: *ObjString, chars: []u8, hash: u32) void {
-        os.obj.typ = .string;
-        os.obj.next = null;
+    fn init_in_place(os: *ObjString, chars: []u8, hash: u32) void {
+        os.obj.init_in_place(Obj.Type.tag(ObjString));
 
         os.buf = chars;
         os.hash = hash;
+    }
+
+    pub fn deinit(os: ObjString, alctr: std.mem.Allocator) void {
+        alctr.free(os.buf);
+    }
+};
+
+pub const ObjFunction = struct {
+    obj: Obj,
+    ftype: Type,
+    arity: u8,
+    chunk: Chunk,
+    name: *const ObjString,
+
+    pub const Type = enum {
+        script, // the top level lox script, where e.g. global variable semantics are different
+        function, // everything not that
+    };
+
+    pub fn alloc(ftype: Type, alctr: std.mem.Allocator) *ObjFunction {
+        var obj_f = alctr.create(ObjFunction) catch @panic("OOM");
+        obj_f.init_in_place(ftype, alctr);
+        return obj_f;
+    }
+
+    fn init_in_place(of: *ObjFunction, ftype: Type, alctr: std.mem.Allocator) void {
+        of.* = .{
+            .obj = undefined,
+            // TODO consider if we should be more safe here
+            .ftype = ftype,
+            .arity = 0,
+            .chunk = Chunk.init(alctr),
+            .name = undefined,
+        };
+
+        of.obj.init_in_place(Obj.Type.tag(ObjFunction));
+    }
+
+    pub fn deinit(of: *ObjFunction, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        of.chunk.deinit();
+        // name free'd by owning ObjPool
     }
 };
 
@@ -127,8 +183,8 @@ pub const ObjPool = struct {
             count += 1;
             const next = obj.next;
             obj.deinit(pl.alctr);
-            switch (obj.typ) {
-                .string => pl.alctr.destroy(obj.as_string()),
+            switch (obj.otype) {
+                inline else => |tg| pl.alctr.destroy(obj.as(Obj.Type.typ(tg))),
             }
             m_obj = next;
         }
@@ -154,9 +210,8 @@ pub const ObjPool = struct {
             return cached;
         }
 
-        // allocate and init
-        var obj_s = pl.alctr.create(ObjString) catch @panic("OOM");
-        obj_s.init_in_place(text, tbl.hash(text));
+        // allocate
+        var obj_s = ObjString.alloc(text, pl.alctr);
 
         // track
         obj_s.obj.next = pl.objs_list;
@@ -175,3 +230,5 @@ const std = @import("std");
 const log = std.log.scoped(.value);
 
 const tbl = @import("table.zig");
+
+const Chunk = @import("chunk.zig").Chunk;

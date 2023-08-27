@@ -7,12 +7,21 @@ pub const Error = error{
     runtime_error,
 };
 
-const stack_max = 256;
+const CallFrame = struct {
+    function: *vl.ObjFunction,
+    ip: usize,
+    slots: []vl.Value,
+};
 
-chunk: Chunk = undefined,
-ip: usize = undefined,
+const frames_max = 256;
+// each frame can only be 256 items long
+const stack_max = frames_max * std.math.maxInt(u8) + 1;
+
+source: []const u8 = undefined,
 stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
+frames: [frames_max]CallFrame = undefined,
+frames_count: usize = undefined,
 pool: vl.ObjPool = undefined,
 
 pub fn init(alctr: std.mem.Allocator) VM {
@@ -26,16 +35,23 @@ pub fn deinit(vm: VM) void {
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
-    var ch = Chunk.init(alctr, source_text);
-    defer ch.deinit();
+    const top_func = try cpl.compile(source_text, &vm.pool, out);
+    defer {
+        top_func.deinit(alctr);
+        alctr.destroy(top_func);
+    }
 
-    const compile_result = cpl.compile(source_text, &ch, &vm.pool, out);
-
-    if (!compile_result) return Error.compile_error;
-
-    vm.chunk = ch;
-    vm.ip = 0;
     vm.stack_reset();
+
+    // initial call frame
+    vm.stack_push(Value.from(vl.ObjFunction, top_func));
+    var bottom_frame = &vm.frames[0];
+    vm.frames_count = 1;
+    bottom_frame.function = top_func;
+    bottom_frame.ip = 0;
+    bottom_frame.slots = &vm.stack;
+
+    vm.source = source_text;
 
     if (dbg.options.trace_execution) {
         dbg.Disassembler.border("execution trace", out);
@@ -45,11 +61,13 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
 }
 
 fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
+    var frame = &vm.frames[vm.frames_count - 1];
+
     while (true) {
         if (dbg.options.trace_execution) {
-            dbg.Disassembler.line(vm.chunk, vm.ip, out);
+            dbg.Disassembler.line(frame.function.chunk, frame.ip, vm.source, out);
             // trace instruction
-            _ = dbg.Disassembler.instruction(vm.chunk, vm.ip, vm, out);
+            _ = dbg.Disassembler.instruction(frame.function.chunk, frame.ip, vm, out);
         }
         const inst = @as(OpCode, @enumFromInt(vm.read_byte()));
 
@@ -90,10 +108,10 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
             .less,
             .greater,
             => |op| {
-                if (op == .add and vm.stack_peek(0).is_string() and vm.stack_peek(1).is_string()) {
+                if (op == .add and vm.stack_peek(0).is(ObjString) and vm.stack_peek(1).is(ObjString)) {
                     // concatenate strings
-                    const b = vm.stack_pop().as_string();
-                    const a = vm.stack_pop().as_string();
+                    const b = vm.stack_pop().as(ObjString);
+                    const a = vm.stack_pop().as(ObjString);
 
                     const new_len = a.buf.len + b.buf.len;
                     const new_chars = alctr.alloc(u8, new_len) catch @panic("OOM");
@@ -132,14 +150,14 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
             },
             .pop => _ = vm.stack_pop(),
             .define_global => {
-                const name = vm.read_constant().as_string();
+                const name = vm.read_constant().as(ObjString);
                 _ = vm.pool.globals.set(name, vm.stack_peek(0));
                 // book says: stack_pop outside of the call to set so that the vm can
                 // still find the value if garbage collection kicks in while setting the table item
                 _ = vm.stack_pop();
             },
             .get_global => {
-                const name = vm.read_constant().as_string();
+                const name = vm.read_constant().as(ObjString);
                 if (vm.pool.globals.get(name)) |val| {
                     vm.stack_push(val);
                 } else {
@@ -148,7 +166,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 }
             },
             .set_global => {
-                const name = vm.read_constant().as_string();
+                const name = vm.read_constant().as(ObjString);
                 if (vm.pool.globals.set(name, vm.stack_peek(0))) {
                     const delete_result = vm.pool.globals.delete(name);
                     std.debug.assert(delete_result);
@@ -158,23 +176,23 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
             },
             .get_local => {
                 const slot = vm.read_byte();
-                vm.stack_push(vm.stack[slot]);
+                vm.stack_push(frame.slots[slot]);
             },
             .set_local => {
                 const slot = vm.read_byte();
-                vm.stack[slot] = vm.stack_peek(0);
+                frame.slots[slot] = vm.stack_peek(0);
             },
             .jump => {
                 const offset = vm.read_short();
-                vm.ip += offset;
+                frame.ip += offset;
             },
             .jump_if_false => {
                 const offset = vm.read_short();
-                if (!vm.stack_peek(0).is_truthy()) vm.ip += offset;
+                if (!vm.stack_peek(0).is_truthy()) frame.ip += offset;
             },
             .loop => {
                 const offset = vm.read_short();
-                vm.ip -= offset;
+                frame.ip -= offset;
             },
             _ => return Error.runtime_error, // unknown opcode
         }
@@ -183,20 +201,23 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 
 // TODO consider combining these read_ functions into single ones that take a type param
 fn read_byte(vm: *VM) u8 {
-    const b = vm.chunk.code.items[vm.ip];
-    vm.ip += 1;
+    var frame = &vm.frames[vm.frames_count - 1];
+    const b = frame.function.chunk.code.items[frame.ip];
+    frame.ip += 1;
     return b;
 }
 
 fn read_short(vm: *VM) u16 {
-    const hi: u16 = vm.chunk.code.items[vm.ip];
-    const lo = vm.chunk.code.items[vm.ip + 1];
-    vm.ip += 2;
+    var frame = &vm.frames[vm.frames_count - 1];
+    const hi: u16 = frame.function.chunk.code.items[frame.ip];
+    const lo = frame.function.chunk.code.items[frame.ip + 1];
+    frame.ip += 2;
     return (hi << 8) | lo;
 }
 
 fn read_constant(vm: *VM) Value {
-    return vm.chunk.constants.items[vm.read_byte()];
+    var frame = &vm.frames[vm.frames_count - 1];
+    return frame.function.chunk.constants.items[vm.read_byte()];
 }
 
 fn stack_reset(vm: *VM) void {
@@ -226,8 +247,9 @@ fn track_obj(vm: *VM, obj: *vl.Obj) void {
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
     out.print(fmt, vars) catch unreachable;
 
-    const instruction = vm.ip - 1;
-    const line = vm.chunk.lines.items[instruction];
+    var frame = &vm.frames[vm.frames_count - 1];
+    const instruction = frame.ip - 1;
+    const line = frame.function.chunk.lines.items[instruction];
     out.print("\n[line {d}] in script\n", .{line}) catch unreachable;
 
     if (dbg.options.dump_stack_on_runtime_error) {
@@ -253,3 +275,4 @@ const tbl = @import("table.zig");
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = vl.Value;
+const ObjString = vl.ObjString;

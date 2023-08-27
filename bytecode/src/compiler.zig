@@ -231,32 +231,119 @@ const Local = struct {
 };
 
 const Compiler = struct {
-    locals: [locals_capacity]Local = undefined,
-    locals_count: i16 = 0,
-    scope_depth: i32 = 0,
+    function: *val.ObjFunction,
+    locals: [locals_capacity]Local,
+    locals_count: i16,
+    scope_depth: i32,
 
     const locals_capacity = std.math.maxInt(u8) + 1;
+
+    pub fn init(alctr: std.mem.Allocator, ftype: val.ObjFunction.Type) Compiler {
+        var c = Compiler{
+            .function = val.ObjFunction.alloc(ftype, alctr),
+            .locals = undefined,
+            .locals_count = 1, // slot 0 reserved below
+            .scope_depth = 0,
+        };
+
+        var reserved_local = &c.locals[0];
+        reserved_local.depth = 0;
+        reserved_local.name.lexeme = ""; // so the user can't refer to it
+
+        return c;
+    }
+
+    pub fn end(comp: *Compiler, line: i32) *val.ObjFunction {
+        comp.emit_byte(@intFromEnum(chk.OpCode.@"return"), line);
+        return comp.function;
+    }
+
+    pub fn print(comp: Compiler, source: []const u8, out: anytype) void {
+        if (dbg.options.print_code) {
+            dbg.Disassembler.border("constants table", out);
+            {
+                for (comp.function.chunk.constants.items, 0..) |c, i| {
+                    out.print("{x:0>2}: ", .{i}) catch unreachable;
+                    c.print(out);
+                    out.print("\n", .{}) catch unreachable;
+                }
+            }
+
+            dbg.Disassembler.border("compiled bytecode", out);
+            {
+                var it = std.mem.window(u8, comp.function.chunk.code.items, 16, 16);
+                var offset: usize = 0;
+                while (it.next()) |win| : (offset += 16) {
+                    out.print("0x{x:0>4}: ", .{offset}) catch unreachable;
+                    for (win) |b| {
+                        out.print("{x:0>2} ", .{b}) catch unreachable;
+                    }
+                    out.print("\n", .{}) catch unreachable;
+                }
+            }
+
+            const name = if (comp.function.ftype == .script) "<script>" else comp.function.name.buf;
+            dbg.Disassembler.chunk(comp.function.chunk, name, source, out);
+        }
+    }
+
+    pub fn emit_byte(comp: *Compiler, b: u8, line: i32) void {
+        comp.function.chunk.write(b, line);
+    }
+
+    pub fn emit_constant(comp: *Compiler, value: val.Value, line: i32) void {
+        comp.emit_byte(@intFromEnum(chk.OpCode.constant), line);
+        comp.emit_byte(comp.function.chunk.add_constant(value), line);
+    }
+
+    pub fn emit_jump(comp: *Compiler, o: chk.OpCode, line: i32) i32 {
+        comp.emit_byte(@intFromEnum(o), line);
+        // emit placeholder to be patched later by patch_jump
+        comp.emit_byte(0xff, line);
+        comp.emit_byte(0xff, line);
+        return @as(i32, @intCast(comp.function.chunk.code.items.len)) - 2;
+    }
+
+    pub fn patch_jump(comp: *Compiler, offset: i32) !void {
+        // -2 to include the 2 byte jump amount itself, which will be read before the actual jump
+        const jump_length = @as(usize, @intCast(@as(i32, @intCast(comp.function.chunk.code.items.len)) - offset - 2));
+
+        if (jump_length > std.math.maxInt(u16)) {
+            return error.jump_too_large;
+        }
+
+        comp.function.chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
+        comp.function.chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
+    }
+
+    pub fn emit_loop(comp: *Compiler, loop_start: usize, line: i32) !void {
+        comp.emit_byte(@intFromEnum(chk.OpCode.loop), line);
+
+        const offset = comp.function.chunk.code.items.len - loop_start + 2;
+        if (offset > std.math.maxInt(u16)) return error.loop_body_too_large;
+
+        comp.emit_byte(@truncate(offset >> 8), line);
+        comp.emit_byte(@truncate(offset), line);
+    }
 };
 
 fn Parser(comptime Context: type) type {
     return struct {
         scanner: Scanner,
         compiler: Compiler,
-        current_chunk: *Chunk,
         previous: Token,
         current: Token,
-        pool: *vl.ObjPool,
+        pool: *val.ObjPool,
         had_error: bool,
         in_panic_mode: bool,
         ctx: Context,
 
         const P = @This();
 
-        pub fn init(scanner: Scanner, ch: *Chunk, pool: *vl.ObjPool, ctx: Context) P {
+        pub fn init(scanner: Scanner, comp: Compiler, pool: *val.ObjPool, ctx: Context) P {
             return .{
                 .scanner = scanner,
-                .compiler = Compiler{},
-                .current_chunk = ch,
+                .compiler = comp,
                 .previous = undefined,
                 .current = undefined,
                 .pool = pool,
@@ -426,7 +513,7 @@ fn Parser(comptime Context: type) type {
                 return;
             }
 
-            p.emit_bytes(@intFromEnum(OpCode.define_global), global);
+            p.emit_bytes(@intFromEnum(chk.OpCode.define_global), global);
         }
 
         fn declare_variable(p: *P) void {
@@ -443,7 +530,7 @@ fn Parser(comptime Context: type) type {
                     }
 
                     if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
-                        p.print_error("Already a variable with this name in this scope.");
+                        p.print_error_msg("Already a variable with this name in this scope.");
                     }
                 }
             }
@@ -453,7 +540,7 @@ fn Parser(comptime Context: type) type {
 
         fn add_local(p: *P, name: Token) void {
             if (p.compiler.locals_count == Compiler.locals_capacity) {
-                p.print_error("Too many local variables in function.");
+                p.print_error_msg("Too many local variables in function.");
                 return;
             }
             var new_local_mem = &p.compiler.locals[@intCast(p.compiler.locals_count)];
@@ -463,7 +550,7 @@ fn Parser(comptime Context: type) type {
         }
 
         fn identifier_constant(p: *P, name: Token) u8 {
-            return p.current_chunk.add_constant(p.pool.make_string_value(name.lexeme));
+            return p.compiler.function.chunk.add_constant(p.pool.make_string_value(name.lexeme));
         }
 
         pub fn statement(p: *P) void {
@@ -509,7 +596,7 @@ fn Parser(comptime Context: type) type {
                 p.expression_statement();
             }
 
-            var loop_start = p.current_chunk.code.items.len;
+            var loop_start = p.compiler.function.chunk.code.items.len;
             var exit_jump: i32 = -1;
             if (!p.match(.semicolon)) {
                 p.expression();
@@ -522,21 +609,21 @@ fn Parser(comptime Context: type) type {
 
             if (!p.match(.rparen)) {
                 const body_jump = p.emit_jump(.jump);
-                const incr_start = p.current_chunk.code.items.len;
+                const incr_start = p.compiler.function.chunk.code.items.len;
                 p.expression();
                 p.emit_op(.pop);
                 p.consume(.rparen, "Expected ')' after for clauses.");
 
-                p.emit_loop(loop_start);
+                p.emit_loop(loop_start) catch |e| p.print_error(e);
                 loop_start = incr_start;
-                p.patch_jump(body_jump);
+                p.patch_jump(body_jump) catch |e| p.print_error(e);
             }
 
             p.statement();
-            p.emit_loop(loop_start);
+            p.emit_loop(loop_start) catch |e| p.print_error(e);
 
             if (exit_jump != -1) {
-                p.patch_jump(exit_jump);
+                p.patch_jump(exit_jump) catch |e| p.print_error(e);
                 p.emit_op(.pop);
             }
 
@@ -554,16 +641,16 @@ fn Parser(comptime Context: type) type {
             p.statement(); // then block
             const else_jump = p.emit_jump(.jump);
 
-            p.patch_jump(then_jump);
+            p.patch_jump(then_jump) catch |e| p.print_error(e);
             p.emit_op(.pop); // clean up condition result
 
             if (p.match(.@"else")) p.statement();
 
-            p.patch_jump(else_jump);
+            p.patch_jump(else_jump) catch |e| p.print_error(e);
         }
 
         fn while_statement(p: *P) void {
-            const loop_start = p.current_chunk.code.items.len;
+            const loop_start = p.compiler.function.chunk.code.items.len;
             p.consume(.lparen, "Expected '(' after 'if'.");
             p.expression();
             p.consume(.rparen, "Expected ')' after condition.");
@@ -571,9 +658,9 @@ fn Parser(comptime Context: type) type {
             const exit_jump = p.emit_jump(.jump_if_false);
             p.emit_op(.pop); // clean up condition result
             p.statement(); // inner block
-            p.emit_loop(loop_start);
+            p.emit_loop(loop_start) catch |e| p.print_error(e);
 
-            p.patch_jump(exit_jump);
+            p.patch_jump(exit_jump) catch |e| p.print_error(e);
             p.emit_op(.pop);
         }
 
@@ -610,12 +697,12 @@ fn Parser(comptime Context: type) type {
             var arg = p.resolve_local(name);
 
             if (arg != -1) {
-                get_op = @intFromEnum(OpCode.get_local);
-                set_op = @intFromEnum(OpCode.set_local);
+                get_op = @intFromEnum(chk.OpCode.get_local);
+                set_op = @intFromEnum(chk.OpCode.set_local);
             } else {
                 arg = p.identifier_constant(name);
-                get_op = @intFromEnum(OpCode.get_global);
-                set_op = @intFromEnum(OpCode.set_global);
+                get_op = @intFromEnum(chk.OpCode.get_global);
+                set_op = @intFromEnum(chk.OpCode.set_global);
             }
 
             if (can_assign and p.match(.eql)) {
@@ -632,7 +719,7 @@ fn Parser(comptime Context: type) type {
                 const local = &p.compiler.locals[@intCast(i)];
                 if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
                     if (local.depth == -1) {
-                        p.print_error("Can't read local variable in its own initializer.");
+                        p.print_error_msg("Can't read local variable in its own initializer.");
                     }
                     return i;
                 }
@@ -647,16 +734,16 @@ fn Parser(comptime Context: type) type {
 
         pub fn number(p: *P, can_assign: bool) void {
             _ = can_assign;
-            const value: Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
+            const value: val.Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
             p.emit_constant(value);
         }
 
         pub fn literal(p: *P, can_assign: bool) void {
             _ = can_assign;
             switch (p.previous.typ) {
-                .false => p.emit_byte(@intFromEnum(OpCode.false)),
-                .true => p.emit_byte(@intFromEnum(OpCode.true)),
-                .nil => p.emit_byte(@intFromEnum(OpCode.nil)),
+                .false => p.emit_byte(@intFromEnum(chk.OpCode.false)),
+                .true => p.emit_byte(@intFromEnum(chk.OpCode.true)),
+                .nil => p.emit_byte(@intFromEnum(chk.OpCode.nil)),
                 else => unreachable,
             }
         }
@@ -681,8 +768,8 @@ fn Parser(comptime Context: type) type {
 
             // negate it
             switch (typ) {
-                .minus => p.emit_byte(@intFromEnum(OpCode.negate)),
-                .bang => p.emit_byte(@intFromEnum(OpCode.not)),
+                .minus => p.emit_byte(@intFromEnum(chk.OpCode.negate)),
+                .bang => p.emit_byte(@intFromEnum(chk.OpCode.not)),
                 else => unreachable,
             }
         }
@@ -694,10 +781,10 @@ fn Parser(comptime Context: type) type {
             p.parse_precedence(@enumFromInt(@intFromEnum(rule.precedence) + 1));
 
             switch (typ) {
-                .plus => p.emit_byte(@intFromEnum(OpCode.add)),
-                .minus => p.emit_byte(@intFromEnum(OpCode.subtract)),
-                .star => p.emit_byte(@intFromEnum(OpCode.multiply)),
-                .slash => p.emit_byte(@intFromEnum(OpCode.divide)),
+                .plus => p.emit_byte(@intFromEnum(chk.OpCode.add)),
+                .minus => p.emit_byte(@intFromEnum(chk.OpCode.subtract)),
+                .star => p.emit_byte(@intFromEnum(chk.OpCode.multiply)),
+                .slash => p.emit_byte(@intFromEnum(chk.OpCode.divide)),
                 .bang_eql => p.emit_ops(.equal, .not),
                 .eql_eql => p.emit_op(.equal),
                 .greater => p.emit_op(.greater),
@@ -713,7 +800,7 @@ fn Parser(comptime Context: type) type {
             const end_jump = p.emit_jump(.jump_if_false);
             p.emit_op(.pop);
             p.parse_precedence(.@"and");
-            p.patch_jump(end_jump);
+            p.patch_jump(end_jump) catch |e| p.print_error(e);
         }
 
         fn @"or"(p: *P, can_assign: bool) void {
@@ -721,11 +808,11 @@ fn Parser(comptime Context: type) type {
             const else_jump = p.emit_jump(.jump_if_false);
             const end_jump = p.emit_jump(.jump);
 
-            p.patch_jump(else_jump);
+            p.patch_jump(else_jump) catch |e| p.print_error(e);
             p.emit_op(.pop);
 
             p.parse_precedence(.@"or");
-            p.patch_jump(end_jump);
+            p.patch_jump(end_jump) catch |e| p.print_error(e);
         }
 
         // used to fill in unimplemented entries in the rules table
@@ -742,7 +829,7 @@ fn Parser(comptime Context: type) type {
                 p.advance();
                 const rule = p.get_rule(p.previous.typ);
                 if (rule.prefix == &P.unimpl) {
-                    p.print_error("Expected expression.");
+                    p.print_error_msg("Expected expression.");
                     return;
                 }
                 rule.prefix(p, can_assign);
@@ -755,11 +842,22 @@ fn Parser(comptime Context: type) type {
             }
 
             if (can_assign and p.match(.eql)) {
-                p.print_error("Invalid assignment target.");
+                p.print_error_msg("Invalid assignment target.");
             }
         }
 
-        fn print_error(p: *P, message: []const u8) void {
+        fn print_error(p: *P, e: anyerror) void {
+            switch (e) {
+                error.jump_too_large => p.print_error_msg("Jump too large."),
+                error.loop_body_too_large => p.print_error_msg("Loop body too large."),
+                else => {
+                    std.debug.assert(false);
+                    p.print_error_msg("Unknown error.");
+                },
+            }
+        }
+
+        fn print_error_msg(p: *P, message: []const u8) void {
             p.print_error_at(p.previous, message);
         }
 
@@ -788,108 +886,72 @@ fn Parser(comptime Context: type) type {
         }
 
         fn emit_byte(p: *P, b: u8) void {
-            p.current_chunk.write(b, p.previous.line);
+            p.compiler.emit_byte(b, p.previous.line);
         }
 
         fn emit_bytes(p: *P, b1: u8, b2: u8) void {
-            p.current_chunk.write(b1, p.previous.line);
-            p.current_chunk.write(b2, p.previous.line);
+            p.emit_byte(b1);
+            p.emit_byte(b2);
         }
 
-        fn emit_op(p: *P, o: OpCode) void {
+        fn emit_op(p: *P, o: chk.OpCode) void {
             p.emit_byte(@intFromEnum(o));
         }
 
-        fn emit_ops(p: *P, o1: OpCode, o2: OpCode) void {
-            p.emit_bytes(@intFromEnum(o1), @intFromEnum(o2));
+        fn emit_ops(p: *P, o1: chk.OpCode, o2: chk.OpCode) void {
+            p.emit_byte(@intFromEnum(o1));
+            p.emit_byte(@intFromEnum(o2));
         }
 
-        fn emit_constant(p: *P, value: Value) void {
-            p.emit_bytes(@intFromEnum(OpCode.constant), p.current_chunk.add_constant(value));
+        fn emit_constant(p: *P, value: val.Value) void {
+            p.compiler.emit_constant(value, p.previous.line);
         }
 
-        fn emit_jump(p: *P, o: OpCode) i32 {
-            p.emit_op(o);
-            p.emit_bytes(0xff, 0xff); // placeholder to be patched later
-            return @as(i32, @intCast(p.current_chunk.code.items.len)) - 2;
+        fn emit_jump(p: *P, o: chk.OpCode) i32 {
+            return p.compiler.emit_jump(o, p.previous.line);
         }
 
-        fn patch_jump(p: *P, offset: i32) void {
-            // -2 to include the 2 byte jump amount itself, which will be read before the actual jump
-            const jump_length = @as(usize, @intCast(@as(i32, @intCast(p.current_chunk.code.items.len)) - offset - 2));
-
-            if (jump_length > std.math.maxInt(u16)) {
-                // somehow error here...
-                // error("Too much code to jump over".);
-                unreachable;
-            }
-
-            p.current_chunk.code.items[@intCast(offset)] = @truncate(jump_length >> 8);
-            p.current_chunk.code.items[@intCast(offset + 1)] = @truncate(jump_length);
+        fn patch_jump(p: *P, offset: i32) !void {
+            return p.compiler.patch_jump(offset);
         }
 
-        fn emit_loop(p: *P, loop_start: usize) void {
-            p.emit_op(.loop);
-
-            const offset = p.current_chunk.code.items.len - loop_start + 2;
-            if (offset > std.math.maxInt(u16)) p.print_error("Loop body too large.");
-
-            p.emit_bytes(@truncate(offset >> 8), @truncate(offset));
+        fn emit_loop(p: *P, loop_start: usize) !void {
+            return p.compiler.emit_loop(loop_start, p.previous.line);
         }
     };
 }
 
-pub fn compile(source_text: []const u8, ch: *Chunk, pool: *vl.ObjPool, err_printer: anytype) bool {
+pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype) !*val.ObjFunction {
     var s = Scanner.init(source_text);
+    var comp = Compiler.init(pool.alctr, val.ObjFunction.Type.script);
+    errdefer {
+        comp.function.deinit(pool.alctr);
+        pool.alctr.destroy(comp.function);
+    }
+
     const ctx = .{ .out = err_printer };
-    var p = Parser(@TypeOf(ctx)).init(s, ch, pool, ctx);
+    var p = Parser(@TypeOf(ctx)).init(s, comp, pool, ctx);
 
     p.advance();
     while (!p.match(.eof)) {
         p.declaration();
     }
 
-    // "endCompiler()"
-    //   "emitReturn()"
-    p.emit_byte(@intFromEnum(OpCode.@"return"));
+    const func = comp.end(p.previous.line);
 
-    if (dbg.options.print_code and !p.had_error) {
-        dbg.Disassembler.border("constants table", err_printer);
-        {
-            for (p.current_chunk.constants.items, 0..) |c, i| {
-                err_printer.print("{x:0>2}: ", .{i}) catch unreachable;
-                c.print(err_printer);
-                err_printer.print("\n", .{}) catch unreachable;
-            }
-        }
-
-        dbg.Disassembler.border("compiled bytecode", err_printer);
-        {
-            var it = std.mem.window(u8, p.current_chunk.code.items, 16, 16);
-            var offset: usize = 0;
-            while (it.next()) |win| : (offset += 16) {
-                err_printer.print("0x{x:0>4}: ", .{offset}) catch unreachable;
-                for (win) |b| {
-                    err_printer.print("{x:0>2} ", .{b}) catch unreachable;
-                }
-                err_printer.print("\n", .{}) catch unreachable;
-            }
-        }
-
-        dbg.Disassembler.chunk(p.current_chunk.*, "disassembly", err_printer);
+    if (!p.had_error) {
+        comp.print(source_text, err_printer);
     }
 
-    return !p.had_error;
+    if (p.had_error) return error.compile_error;
+    return func;
 }
 
-const vl = @import("value.zig");
-const ux = @import("ux.zig");
+const val = @import("value.zig");
+const usx = @import("ux.zig");
 const dbg = @import("debug.zig");
 const tbl = @import("table.zig");
-
-const Chunk = @import("chunk.zig").Chunk;
-const OpCode = @import("chunk.zig").OpCode;
-const Value = @import("value.zig").Value;
+const chk = @import("chunk.zig");
 
 const std = @import("std");
 const log = std.log.scoped(.cpl);

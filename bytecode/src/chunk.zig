@@ -32,21 +32,20 @@ pub const Chunk = struct {
     code: std.ArrayList(u8),
     lines: std.ArrayList(i32),
     constants: std.ArrayList(value.Value),
-    source: []const u8,
 
-    pub fn init(alctr: std.mem.Allocator, source: []const u8) Chunk {
+    pub fn init(alctr: std.mem.Allocator) Chunk {
         return .{
             .code = std.ArrayList(u8).init(alctr),
             .lines = std.ArrayList(i32).init(alctr),
             .constants = std.ArrayList(value.Value).init(alctr),
-            .source = source,
         };
     }
 
     pub fn deinit(ch: Chunk) void {
         ch.code.deinit();
         ch.lines.deinit();
-        // constants with items on heap are tracked in the vm's obj list
+        // constants with items on heap are tracked in the vm's obj list, so we don't go
+        // through `constants` and deinit the contained objects.
         ch.constants.deinit();
     }
 
@@ -63,17 +62,6 @@ pub const Chunk = struct {
         c.constants.append(val) catch @panic("OOM");
         std.debug.assert(c.constants.items.len < std.math.maxInt(u8));
         return @intCast(c.constants.items.len - 1);
-    }
-
-    pub fn get_source_line(c: Chunk, line: usize) []const u8 {
-        // slow and naive, but fast enough for our purposes now.
-        var it = std.mem.splitScalar(u8, c.source, '\n');
-        var i: usize = 0;
-        while (i < line - 1) : ({
-            _ = it.next();
-            i += 1;
-        }) {}
-        return it.next().?;
     }
 };
 
