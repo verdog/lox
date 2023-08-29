@@ -134,20 +134,19 @@ pub const ObjFunction = struct {
         function, // everything not that
     };
 
-    pub fn alloc(ftype: Type, alctr: std.mem.Allocator) *ObjFunction {
+    pub fn alloc(fname: *const ObjString, ftype: Type, alctr: std.mem.Allocator) *ObjFunction {
         var obj_f = alctr.create(ObjFunction) catch @panic("OOM");
-        obj_f.init_in_place(ftype, alctr);
+        obj_f.init_in_place(fname, ftype, alctr);
         return obj_f;
     }
 
-    fn init_in_place(of: *ObjFunction, ftype: Type, alctr: std.mem.Allocator) void {
+    fn init_in_place(of: *ObjFunction, fname: *const ObjString, ftype: Type, alctr: std.mem.Allocator) void {
         of.* = .{
             .obj = undefined,
-            // TODO consider if we should be more safe here
             .ftype = ftype,
             .arity = 0,
             .chunk = Chunk.init(alctr),
-            .name = undefined,
+            .name = fname,
         };
 
         of.obj.init_in_place(Obj.Type.tag(ObjFunction));

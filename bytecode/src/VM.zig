@@ -45,11 +45,8 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
 
     // initial call frame
     vm.stack_push(Value.from(vl.ObjFunction, top_func));
-    var bottom_frame = &vm.frames[0];
-    vm.frames_count = 1;
-    bottom_frame.function = top_func;
-    bottom_frame.ip = 0;
-    bottom_frame.slots = &vm.stack;
+    vm.frames_count = 0;
+    _ = vm.call(top_func, 0, out);
 
     vm.source = source_text;
 
@@ -73,7 +70,17 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 
         switch (inst) {
             .@"return" => {
-                return;
+                const result = vm.stack_pop();
+                vm.frames_count -= 1;
+                if (vm.frames_count == 0) {
+                    // return from script
+                    _ = vm.stack_pop();
+                    return;
+                }
+
+                vm.stack_top = (@intFromPtr(frame.slots.ptr) - @intFromPtr(&vm.stack)) / @sizeOf(Value);
+                vm.stack_push(result);
+                frame = &vm.frames[vm.frames_count - 1];
             },
             .print => {
                 vm.stack_pop().print(out);
@@ -194,9 +201,47 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const offset = vm.read_short();
                 frame.ip -= offset;
             },
+            .call => {
+                const arg_count = vm.read_byte();
+                if (!vm.call_value(vm.stack_peek(arg_count), arg_count, out)) {
+                    return Error.runtime_error;
+                }
+                frame = &vm.frames[vm.frames_count - 1];
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
+}
+
+fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
+    if (callee.is(ObjFunction)) {
+        return vm.call(callee.as(ObjFunction), arg_count, out);
+    } else {
+        vm.print_runtime_error(out, "Can only call functions and classes.", .{});
+        return false;
+    }
+}
+
+fn call(vm: *VM, callee: *ObjFunction, arg_count: u32, out: anytype) bool {
+    if (arg_count != callee.arity) {
+        vm.print_runtime_error(out, "Expected {d} arguments but got {d}.", .{ callee.arity, arg_count });
+        return false;
+    }
+
+    if (vm.frames_count == VM.frames_max) {
+        vm.print_runtime_error(out, "Stack overflow.", .{});
+        return false;
+    }
+
+    var frame = &vm.frames[vm.frames_count];
+    vm.frames_count += 1;
+    frame.* = undefined;
+
+    frame.function = callee;
+    frame.ip = 0;
+    frame.slots = vm.stack[vm.stack_top - arg_count - 1 ..];
+
+    return true;
 }
 
 // TODO consider combining these read_ functions into single ones that take a type param
@@ -246,11 +291,24 @@ fn track_obj(vm: *VM, obj: *vl.Obj) void {
 
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
     out.print(fmt, vars) catch unreachable;
+    out.print("\n", .{}) catch unreachable;
 
-    var frame = &vm.frames[vm.frames_count - 1];
-    const instruction = frame.ip - 1;
-    const line = frame.function.chunk.lines.items[instruction];
-    out.print("\n[line {d}] in script\n", .{line}) catch unreachable;
+    {
+        var i = vm.frames_count - 1;
+        while (i >= 0) : (i -= 1) {
+            const frame = &vm.frames[i];
+            const func = frame.function;
+            const instruction = frame.ip - 1;
+            const line = frame.function.chunk.lines.items[instruction];
+
+            out.print("[line {d}] in ", .{line}) catch unreachable;
+            if (func.ftype == .script) {
+                out.print("script\n", .{}) catch unreachable;
+            } else {
+                out.print("{s}()\n", .{func.name.buf}) catch unreachable;
+            }
+        }
+    }
 
     if (dbg.options.dump_stack_on_runtime_error) {
         out.print("Stack, starting at bottom:\n", .{}) catch unreachable;
@@ -276,3 +334,4 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = vl.Value;
 const ObjString = vl.ObjString;
+const ObjFunction = vl.ObjFunction;

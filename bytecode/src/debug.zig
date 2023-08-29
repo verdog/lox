@@ -104,6 +104,7 @@ pub const Disassembler = struct {
 
             .get_local,
             .set_local,
+            .call,
             => return byte_inst(opcode, ch, offset, vm, out),
 
             .jump,
@@ -146,14 +147,22 @@ pub const Disassembler = struct {
                     switch (o.otype) {
                         .string => {
                             const buf = val.as(ObjString).buf;
-                            const spaces = "                       ";
+                            const spaces = " " ** 64;
                             if (buf.len <= 14) {
                                 break :blk std.fmt.bufPrint(&val_buf, "\"{s}\"{s}", .{ buf, spaces[0..(14 - buf.len)] }) catch unreachable;
                             } else {
                                 break :blk std.fmt.bufPrint(&val_buf, "\"{s}\".", .{buf[0..13]}) catch unreachable;
                             }
                         },
-                        .function => unreachable,
+                        .function => {
+                            const name = val.as(ObjFunction).name.buf;
+                            const spaces = " " ** 64;
+                            if (name.len <= 14) {
+                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
+                            } else {
+                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>.", .{name[0..13]}) catch unreachable;
+                            }
+                        },
                     }
                 },
             }
@@ -169,7 +178,7 @@ pub const Disassembler = struct {
         const slot = ch.code.items[offset + 1];
         var slot_buf: [16]u8 = undefined;
         const slot_str = std.fmt.bufPrint(&slot_buf, "{d}", .{slot}) catch unreachable;
-        emit_line(offset + 1, slot, "  (stack index)", slot_str, vm, out);
+        emit_line(offset + 1, slot, "  (...)", slot_str, vm, out);
         return offset + 2;
     }
 
@@ -199,3 +208,4 @@ const OpCode = @import("chunk.zig").OpCode;
 const Chunk = @import("chunk.zig").Chunk;
 const Value = vl.Value;
 const ObjString = vl.ObjString;
+const ObjFunction = vl.ObjFunction;

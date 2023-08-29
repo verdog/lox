@@ -235,15 +235,17 @@ const Compiler = struct {
     locals: [locals_capacity]Local,
     locals_count: i16,
     scope_depth: i32,
+    enclosing: ?*Compiler,
 
     const locals_capacity = std.math.maxInt(u8) + 1;
 
-    pub fn init(alctr: std.mem.Allocator, ftype: val.ObjFunction.Type) Compiler {
+    pub fn init(alctr: std.mem.Allocator, fname: *const val.ObjString, ftype: val.ObjFunction.Type, enclosing: ?*Compiler) Compiler {
         var c = Compiler{
-            .function = val.ObjFunction.alloc(ftype, alctr),
+            .function = val.ObjFunction.alloc(fname, ftype, alctr),
             .locals = undefined,
             .locals_count = 1, // slot 0 reserved below
             .scope_depth = 0,
+            .enclosing = enclosing,
         };
 
         var reserved_local = &c.locals[0];
@@ -254,7 +256,7 @@ const Compiler = struct {
     }
 
     pub fn end(comp: *Compiler, line: i32) *val.ObjFunction {
-        comp.emit_byte(@intFromEnum(chk.OpCode.@"return"), line);
+        comp.emit_return(line);
         return comp.function;
     }
 
@@ -325,12 +327,17 @@ const Compiler = struct {
         comp.emit_byte(@truncate(offset >> 8), line);
         comp.emit_byte(@truncate(offset), line);
     }
+
+    pub fn emit_return(comp: *Compiler, line: i32) void {
+        comp.emit_byte(@intFromEnum(chk.OpCode.nil), line);
+        comp.emit_byte(@intFromEnum(chk.OpCode.@"return"), line);
+    }
 };
 
 fn Parser(comptime Context: type) type {
     return struct {
         scanner: Scanner,
-        compiler: Compiler,
+        compiler: *Compiler,
         previous: Token,
         current: Token,
         pool: *val.ObjPool,
@@ -340,7 +347,7 @@ fn Parser(comptime Context: type) type {
 
         const P = @This();
 
-        pub fn init(scanner: Scanner, comp: Compiler, pool: *val.ObjPool, ctx: Context) P {
+        pub fn init(scanner: Scanner, comp: *Compiler, pool: *val.ObjPool, ctx: Context) P {
             return .{
                 .scanner = scanner,
                 .compiler = comp,
@@ -376,7 +383,7 @@ fn Parser(comptime Context: type) type {
         fn get_rule(p: P, typ: Token.Type) Rule {
             _ = p;
             return switch (typ) {
-                .lparen => .{ .prefix = P.grouping, .infix = P.unimpl, .precedence = .none },
+                .lparen => .{ .prefix = P.grouping, .infix = P.call, .precedence = .call },
                 // .rparen => {},
                 // .lbrace => {},
                 // .rbrace => {},
@@ -470,7 +477,9 @@ fn Parser(comptime Context: type) type {
         }
 
         pub fn declaration(p: *P) void {
-            if (p.match(.@"var")) {
+            if (p.match(.fun)) {
+                p.fun_declaration();
+            } else if (p.match(.@"var")) {
                 p.var_declaration();
             } else {
                 p.statement();
@@ -479,7 +488,14 @@ fn Parser(comptime Context: type) type {
             if (p.in_panic_mode) p.synchronize();
         }
 
-        pub fn var_declaration(p: *P) void {
+        fn fun_declaration(p: *P) void {
+            const global = p.parse_variable("Expected function name.");
+            p.mark_top_local_as_initialized();
+            p.function(.function);
+            p.define_variable(global);
+        }
+
+        fn var_declaration(p: *P) void {
             const global = p.parse_variable("Expected variable name.");
 
             if (p.match(.eql)) {
@@ -509,11 +525,16 @@ fn Parser(comptime Context: type) type {
             // are stored on the top of the stack, so we just need to mark it ready for
             // use.
             if (p.compiler.scope_depth > 0) {
-                p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth = p.compiler.scope_depth;
+                p.mark_top_local_as_initialized();
                 return;
             }
 
             p.emit_bytes(@intFromEnum(chk.OpCode.define_global), global);
+        }
+
+        fn mark_top_local_as_initialized(p: *P) void {
+            if (p.compiler.scope_depth == 0) return;
+            p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth = p.compiler.scope_depth;
         }
 
         fn declare_variable(p: *P) void {
@@ -553,13 +574,15 @@ fn Parser(comptime Context: type) type {
             return p.compiler.function.chunk.add_constant(p.pool.make_string_value(name.lexeme));
         }
 
-        pub fn statement(p: *P) void {
+        fn statement(p: *P) void {
             if (p.match(.print)) {
                 p.print_statement();
             } else if (p.match(.@"for")) {
                 p.for_statement();
             } else if (p.match(.@"if")) {
                 p.if_statement();
+            } else if (p.match(.@"return")) {
+                p.return_statement();
             } else if (p.match(.@"while")) {
                 p.while_statement();
             } else if (p.match(.lbrace)) {
@@ -571,13 +594,13 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn print_statement(p: *P) void {
+        fn print_statement(p: *P) void {
             p.expression();
             p.consume(.semicolon, "Expected ';' after value.");
             p.emit_op(.print);
         }
 
-        pub fn expression_statement(p: *P) void {
+        fn expression_statement(p: *P) void {
             p.expression();
             p.consume(.semicolon, "Expected ';' after expression.");
             p.emit_op(.pop);
@@ -630,7 +653,7 @@ fn Parser(comptime Context: type) type {
             p.end_scope();
         }
 
-        pub fn if_statement(p: *P) void {
+        fn if_statement(p: *P) void {
             p.consume(.lparen, "Expected '(' after 'if'.");
             p.expression();
             p.consume(.rparen, "Expected ')' after condition.");
@@ -647,6 +670,20 @@ fn Parser(comptime Context: type) type {
             if (p.match(.@"else")) p.statement();
 
             p.patch_jump(else_jump) catch |e| p.print_error(e);
+        }
+
+        fn return_statement(p: *P) void {
+            if (p.compiler.function.ftype == .script) {
+                p.print_error_msg("Can't return from top-level code.");
+            }
+
+            if (p.match(.semicolon)) {
+                p.emit_return();
+            } else {
+                p.expression();
+                p.consume(.semicolon, "Expected ';' after return value.");
+                p.emit_op(.@"return");
+            }
         }
 
         fn while_statement(p: *P) void {
@@ -815,6 +852,70 @@ fn Parser(comptime Context: type) type {
             p.patch_jump(end_jump) catch |e| p.print_error(e);
         }
 
+        fn function(p: *P, ftype: val.ObjFunction.Type) void {
+            const fname = p.pool.make_string_value(p.previous.lexeme).as(val.ObjString);
+            var inner = Compiler.init(p.pool.alctr, fname, ftype, p.compiler);
+            p.compiler = &inner;
+            // no need to close this scope since we toss the whole compiler at the end
+            p.begin_scope();
+
+            p.consume(.lparen, "Expected '(' after function name.");
+            if (!p.check(.rparen)) {
+                var first = true;
+                var matched = p.match(.comma);
+                while (first or matched) : ({
+                    first = false;
+                    matched = p.match(.comma);
+                }) {
+                    p.compiler.function.arity += 1;
+                    if (p.compiler.function.arity > std.math.maxInt(u8)) {
+                        p.print_error_at_current("Can't have more than 255 parameters.");
+                    }
+                    const constant = p.parse_variable("Expected parameter name.");
+                    p.define_variable(constant);
+                }
+            }
+            p.consume(.rparen, "Expected ')' after parameters.");
+            p.consume(.lbrace, "Expected '{' before function body.");
+
+            p.block_statement();
+
+            var result = inner.end(p.previous.line);
+            if (!p.had_error) {
+                inner.print(p.scanner.source, p.ctx.out);
+            }
+            p.compiler = inner.enclosing.?;
+
+            p.emit_bytes(
+                @intFromEnum(chk.OpCode.constant),
+                p.compiler.function.chunk.add_constant(val.Value.from(val.ObjFunction, result)),
+            );
+        }
+
+        fn call(p: *P, can_assign: bool) void {
+            _ = can_assign;
+            const arg_count = p.arg_list();
+            p.emit_bytes(@intFromEnum(chk.OpCode.call), arg_count);
+        }
+
+        fn arg_list(p: *P) u8 {
+            var arg_count: u8 = 0;
+            if (!p.check(.rparen)) {
+                var mtch = p.match(.comma);
+                var first = true;
+                while (mtch or first) {
+                    mtch = p.match(.comma);
+                    first = false;
+                    p.expression();
+                    if (arg_count == 255) p.print_error_msg("Can't have more than 255 arguments.");
+                    // let the value overflow to prevent panic
+                    arg_count +%= 1;
+                }
+            }
+            p.consume(.rparen, "Expected ')' after arguments.");
+            return arg_count;
+        }
+
         // used to fill in unimplemented entries in the rules table
         fn unimpl(p: *P, can_assign: bool) void {
             _ = can_assign;
@@ -918,19 +1019,23 @@ fn Parser(comptime Context: type) type {
         fn emit_loop(p: *P, loop_start: usize) !void {
             return p.compiler.emit_loop(loop_start, p.previous.line);
         }
+
+        fn emit_return(p: *P) void {
+            p.compiler.emit_return(p.previous.line);
+        }
     };
 }
 
 pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype) !*val.ObjFunction {
     var s = Scanner.init(source_text);
-    var comp = Compiler.init(pool.alctr, val.ObjFunction.Type.script);
+    var comp = Compiler.init(pool.alctr, undefined, val.ObjFunction.Type.script, null);
     errdefer {
         comp.function.deinit(pool.alctr);
         pool.alctr.destroy(comp.function);
     }
 
     const ctx = .{ .out = err_printer };
-    var p = Parser(@TypeOf(ctx)).init(s, comp, pool, ctx);
+    var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
 
     p.advance();
     while (!p.match(.eof)) {
