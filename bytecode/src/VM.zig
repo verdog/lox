@@ -36,10 +36,6 @@ pub fn deinit(vm: VM) void {
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
     const top_func = try cpl.compile(source_text, &vm.pool, out);
-    defer {
-        top_func.deinit(alctr);
-        alctr.destroy(top_func);
-    }
 
     vm.stack_reset();
 

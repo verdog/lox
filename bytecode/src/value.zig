@@ -213,8 +213,7 @@ pub const ObjPool = struct {
         var obj_s = ObjString.alloc(text, pl.alctr);
 
         // track
-        obj_s.obj.next = pl.objs_list;
-        pl.objs_list = &obj_s.obj;
+        pl.track_obj(&obj_s.obj);
 
         // cache
         const unique = pl.cached_strings.set(obj_s, Value{ .nil = {} });
@@ -222,6 +221,19 @@ pub const ObjPool = struct {
 
         const val = Value{ .obj = &obj_s.obj };
         return val;
+    }
+
+    pub fn add(pl: *ObjPool, comptime T: type, args: anytype) Value {
+        if (T == ObjString) @compileError("Use make/take string for that.");
+
+        var ptr = @call(.auto, T.alloc, args ++ .{pl.alctr});
+        pl.track_obj(&ptr.obj);
+        return Value.from(T, ptr);
+    }
+
+    fn track_obj(pl: *ObjPool, obj: *Obj) void {
+        obj.next = pl.objs_list;
+        pl.objs_list = obj;
     }
 };
 

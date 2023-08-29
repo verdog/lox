@@ -239,9 +239,9 @@ const Compiler = struct {
 
     const locals_capacity = std.math.maxInt(u8) + 1;
 
-    pub fn init(alctr: std.mem.Allocator, fname: *const val.ObjString, ftype: val.ObjFunction.Type, enclosing: ?*Compiler) Compiler {
+    pub fn init(f: *val.ObjFunction, enclosing: ?*Compiler) Compiler {
         var c = Compiler{
-            .function = val.ObjFunction.alloc(fname, ftype, alctr),
+            .function = f,
             .locals = undefined,
             .locals_count = 1, // slot 0 reserved below
             .scope_depth = 0,
@@ -854,7 +854,8 @@ fn Parser(comptime Context: type) type {
 
         fn function(p: *P, ftype: val.ObjFunction.Type) void {
             const fname = p.pool.make_string_value(p.previous.lexeme).as(val.ObjString);
-            var inner = Compiler.init(p.pool.alctr, fname, ftype, p.compiler);
+            const f = p.pool.add(val.ObjFunction, .{ fname, ftype }).as(val.ObjFunction);
+            var inner = Compiler.init(f, p.compiler);
             p.compiler = &inner;
             // no need to close this scope since we toss the whole compiler at the end
             p.begin_scope();
@@ -1028,11 +1029,8 @@ fn Parser(comptime Context: type) type {
 
 pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype) !*val.ObjFunction {
     var s = Scanner.init(source_text);
-    var comp = Compiler.init(pool.alctr, undefined, val.ObjFunction.Type.script, null);
-    errdefer {
-        comp.function.deinit(pool.alctr);
-        pool.alctr.destroy(comp.function);
-    }
+    var outer_f = pool.add(val.ObjFunction, .{ undefined, .script }).as(val.ObjFunction);
+    var comp = Compiler.init(outer_f, null);
 
     const ctx = .{ .out = err_printer };
     var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
