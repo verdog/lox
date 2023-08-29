@@ -1,9 +1,5 @@
-fun foo(bar) {
- print bar;
- return bar;
+fun foo(one, two) {
+  return one + two;
 }
 
-print foo;
-foo(foo);
-
-print foo(foo);
+print foo(1, 2);

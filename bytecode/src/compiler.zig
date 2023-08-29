@@ -862,12 +862,8 @@ fn Parser(comptime Context: type) type {
 
             p.consume(.lparen, "Expected '(' after function name.");
             if (!p.check(.rparen)) {
-                var first = true;
-                var matched = p.match(.comma);
-                while (first or matched) : ({
-                    first = false;
-                    matched = p.match(.comma);
-                }) {
+                var matched = true;
+                while (matched) : (matched = p.match(.comma)) {
                     p.compiler.function.arity += 1;
                     if (p.compiler.function.arity > std.math.maxInt(u8)) {
                         p.print_error_at_current("Can't have more than 255 parameters.");
@@ -902,11 +898,8 @@ fn Parser(comptime Context: type) type {
         fn arg_list(p: *P) u8 {
             var arg_count: u8 = 0;
             if (!p.check(.rparen)) {
-                var mtch = p.match(.comma);
-                var first = true;
-                while (mtch or first) {
-                    mtch = p.match(.comma);
-                    first = false;
+                var mtch = true;
+                while (mtch) : (mtch = p.match(.comma)) {
                     p.expression();
                     if (arg_count == 255) p.print_error_msg("Can't have more than 255 arguments.");
                     // let the value overflow to prevent panic
