@@ -38,7 +38,7 @@ pub const Value = union(enum) {
 
     pub fn print(val: Value, out: anytype) void {
         switch (val) {
-            .number => |n| out.print("{d}", .{n}) catch unreachable,
+            .number => |n| out.print("{d:.4}", .{n}) catch unreachable,
             .booln => |b| out.print("{}", .{b}) catch unreachable,
             .nil => out.print("(nil)", .{}) catch unreachable,
             .obj => |o| {
@@ -52,6 +52,9 @@ pub const Value = union(enum) {
                         const name = if (func.ftype == .script) "<script>" else func.name.buf;
                         out.print("<fn {s}>", .{name}) catch unreachable;
                     },
+                    .native => {
+                        out.print("<native fn>", .{}) catch unreachable;
+                    },
                 }
             },
         }
@@ -62,11 +65,13 @@ pub const Obj = struct {
     pub const Type = enum {
         string,
         function,
+        native,
 
         pub fn tag(comptime T: type) Type {
             return switch (T) {
                 ObjString => .string,
                 ObjFunction => .function,
+                ObjNative => .native,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -75,6 +80,7 @@ pub const Obj = struct {
             return switch (tg) {
                 .string => ObjString,
                 .function => ObjFunction,
+                .native => ObjNative,
             };
         }
     };
@@ -156,6 +162,34 @@ pub const ObjFunction = struct {
         _ = alctr;
         of.chunk.deinit();
         // name free'd by owning ObjPool
+    }
+};
+
+pub const ObjNative = struct {
+    pub const Fn = *const fn (vm: *VM, args: []Value) Value;
+
+    obj: Obj,
+    function: Fn,
+
+    pub fn alloc(f: Fn, alctr: std.mem.Allocator) *ObjNative {
+        var obj_n = alctr.create(ObjNative) catch @panic("OOM");
+        obj_n.init_in_place(f);
+        return obj_n;
+    }
+
+    fn init_in_place(on: *ObjNative, f: Fn) void {
+        on.* = .{
+            .obj = undefined,
+            .function = f,
+        };
+
+        on.obj.init_in_place(Obj.Type.tag(ObjNative));
+    }
+
+    pub fn deinit(on: *ObjNative, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        _ = on;
+        // nothing to do
     }
 };
 
@@ -243,3 +277,4 @@ const log = std.log.scoped(.value);
 const tbl = @import("table.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
+const VM = @import("VM.zig");

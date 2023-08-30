@@ -1,7 +1,7 @@
 //! debug tools
 
 pub const DebugOptions = struct {
-    trace_execution: bool = true,
+    trace_execution: bool = false,
     print_code: bool = true,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
 };
@@ -162,6 +162,9 @@ pub const Disassembler = struct {
                             } else {
                                 break :blk std.fmt.bufPrint(&val_buf, "<{s}>.", .{name[0..13]}) catch unreachable;
                             }
+                        },
+                        .native => {
+                            break :blk std.fmt.bufPrint(&val_buf, "<native fn>", .{}) catch unreachable;
                         },
                     }
                 },

@@ -24,10 +24,19 @@ frames: [frames_max]CallFrame = undefined,
 frames_count: usize = undefined,
 pool: vl.ObjPool = undefined,
 
+start_time: i64 = undefined,
+
 pub fn init(alctr: std.mem.Allocator) VM {
-    return .{
+    var result = VM{
         .pool = vl.ObjPool.init(alctr),
+        .start_time = std.time.milliTimestamp(),
     };
+
+    return result;
+}
+
+fn define_natives(vm: *VM) void {
+    vm.define_native("clock", native_clock);
 }
 
 pub fn deinit(vm: VM) void {
@@ -38,6 +47,7 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     const top_func = try cpl.compile(source_text, &vm.pool, out);
 
     vm.stack_reset();
+    vm.define_natives();
 
     // initial call frame
     vm.stack_push(Value.from(vl.ObjFunction, top_func));
@@ -210,12 +220,28 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 }
 
 fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
-    if (callee.is(ObjFunction)) {
-        return vm.call(callee.as(ObjFunction), arg_count, out);
-    } else {
-        vm.print_runtime_error(out, "Can only call functions and classes.", .{});
-        return false;
+    switch (callee) {
+        .obj => |o| {
+            switch (o.otype) {
+                .function => return vm.call(callee.as(ObjFunction), arg_count, out),
+                .native => {
+                    const native = callee.as(ObjNative);
+                    const first_arg_idx = vm.stack_top - arg_count;
+                    const result = native.function(vm, vm.stack[first_arg_idx .. first_arg_idx + arg_count]);
+
+                    // pop arguments and push result
+                    vm.stack_top -= arg_count + 1;
+                    vm.stack_push(result);
+                    return true;
+                },
+                else => {}, // fall through
+            }
+        },
+        else => {}, // fall through
     }
+
+    vm.print_runtime_error(out, "Can only call functions and classes.", .{});
+    return false;
 }
 
 fn call(vm: *VM, callee: *ObjFunction, arg_count: u32, out: anytype) bool {
@@ -285,6 +311,24 @@ fn track_obj(vm: *VM, obj: *vl.Obj) void {
     vm.objs = obj;
 }
 
+fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn) void {
+    const name_val = vm.pool.make_string_value(name);
+    const native_val = vm.pool.add(ObjNative, .{f});
+
+    // push and pop to protect from evil garbage collector
+
+    vm.stack_push(name_val);
+    vm.stack_push(native_val);
+
+    // assumed that this function is run before anything is put onto the stack
+    std.debug.assert(vm.stack_top == 2);
+    const is_new = vm.pool.globals.set(vm.stack[0].as(ObjString), vm.stack[1]);
+    std.debug.assert(is_new);
+
+    _ = vm.stack_pop();
+    _ = vm.stack_pop();
+}
+
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
     out.print(fmt, vars) catch unreachable;
     out.print("\n", .{}) catch unreachable;
@@ -318,6 +362,13 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
     vm.stack_reset();
 }
 
+fn native_clock(vm: *VM, args: []Value) Value {
+    _ = args;
+    const milliseconds_ellapsed = std.time.milliTimestamp() - vm.start_time;
+    const fme: f64 = @floatFromInt(milliseconds_ellapsed);
+    return Value{ .number = fme / 1000 };
+}
+
 const std = @import("std");
 const log = std.log.scoped(.vm);
 
@@ -325,9 +376,11 @@ const vl = @import("value.zig");
 const dbg = @import("debug.zig");
 const cpl = @import("compiler.zig");
 const tbl = @import("table.zig");
+const nat = @import("native.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = vl.Value;
 const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
+const ObjNative = vl.ObjNative;
