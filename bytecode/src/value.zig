@@ -170,17 +170,19 @@ pub const ObjNative = struct {
 
     obj: Obj,
     function: Fn,
+    arity: u8,
 
-    pub fn alloc(f: Fn, alctr: std.mem.Allocator) *ObjNative {
+    pub fn alloc(f: Fn, arity: u8, alctr: std.mem.Allocator) *ObjNative {
         var obj_n = alctr.create(ObjNative) catch @panic("OOM");
-        obj_n.init_in_place(f);
+        obj_n.init_in_place(f, arity);
         return obj_n;
     }
 
-    fn init_in_place(on: *ObjNative, f: Fn) void {
+    fn init_in_place(on: *ObjNative, f: Fn, arity: u8) void {
         on.* = .{
             .obj = undefined,
             .function = f,
+            .arity = arity,
         };
 
         on.obj.init_in_place(Obj.Type.tag(ObjNative));

@@ -36,7 +36,7 @@ pub fn init(alctr: std.mem.Allocator) VM {
 }
 
 fn define_natives(vm: *VM) void {
-    vm.define_native("clock", native_clock);
+    vm.define_native("clock", native_clock, 0);
 }
 
 pub fn deinit(vm: VM) void {
@@ -226,6 +226,12 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
                 .function => return vm.call(callee.as(ObjFunction), arg_count, out),
                 .native => {
                     const native = callee.as(ObjNative);
+
+                    if (native.arity != arg_count) {
+                        vm.print_runtime_error(out, "Expected {d} arguments, got {d}.", .{ native.arity, arg_count });
+                        return false;
+                    }
+
                     const first_arg_idx = vm.stack_top - arg_count;
                     const result = native.function(vm, vm.stack[first_arg_idx .. first_arg_idx + arg_count]);
 
@@ -311,9 +317,9 @@ fn track_obj(vm: *VM, obj: *vl.Obj) void {
     vm.objs = obj;
 }
 
-fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn) void {
+fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn, arity: u8) void {
     const name_val = vm.pool.make_string_value(name);
-    const native_val = vm.pool.add(ObjNative, .{f});
+    const native_val = vm.pool.add(ObjNative, .{ f, arity });
 
     // push and pop to protect from evil garbage collector
 
@@ -347,6 +353,8 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
             } else {
                 out.print("{s}()\n", .{func.name.buf}) catch unreachable;
             }
+
+            if (i == 0) break; // last frame, decrement would underflow
         }
     }
 
