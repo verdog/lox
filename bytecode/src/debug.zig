@@ -113,6 +113,12 @@ pub const Disassembler = struct {
 
             .loop => return jump_inst(opcode, -1, ch, offset, vm, out),
 
+            .closure => {
+                emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+                constant(ch, offset + 1, vm, out);
+                return offset + 2;
+            },
+
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;
@@ -127,8 +133,12 @@ pub const Disassembler = struct {
 
     fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
         emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+        constant(ch, offset + 1, vm, out);
+        return offset + 2;
+    }
 
-        const constant_byte = ch.code.items[offset + 1];
+    fn constant(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) void {
+        const constant_byte = ch.code.items[offset];
         const val = ch.constants.items[constant_byte];
         var val_buf: [16]u8 = undefined;
         const val_str = blk: {
@@ -166,13 +176,21 @@ pub const Disassembler = struct {
                         .native => {
                             break :blk std.fmt.bufPrint(&val_buf, "<native fn>", .{}) catch unreachable;
                         },
+                        .closure => {
+                            const name = val.as(ObjClosure).func.name.buf;
+                            const spaces = " " ** 64;
+                            if (name.len <= 14) {
+                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
+                            } else {
+                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>.", .{name[0..13]}) catch unreachable;
+                            }
+                        },
                     }
                 },
             }
         };
 
-        emit_line(offset + 1, constant_byte, "  (constant)", val_str, vm, out);
-        return offset + 2;
+        emit_line(offset, constant_byte, "  (constant)", val_str, vm, out);
     }
 
     fn byte_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
@@ -212,3 +230,4 @@ const Chunk = @import("chunk.zig").Chunk;
 const Value = vl.Value;
 const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
+const ObjClosure = vl.ObjClosure;

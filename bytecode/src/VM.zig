@@ -8,7 +8,7 @@ pub const Error = error{
 };
 
 const CallFrame = struct {
-    function: *vl.ObjFunction,
+    closure: *vl.ObjClosure,
     ip: usize,
     slots: []vl.Value,
 };
@@ -49,10 +49,15 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     vm.stack_reset();
     vm.define_natives();
 
+    // wrap in closure
+    vm.stack_push(Value.from(vl.ObjFunction, top_func)); // keep safe from gc
+    const closure = vm.pool.add(ObjClosure, .{top_func}).as(ObjClosure);
+    _ = vm.stack_pop();
+    vm.stack_push(Value.from(ObjClosure, closure));
+
     // initial call frame
-    vm.stack_push(Value.from(vl.ObjFunction, top_func));
     vm.frames_count = 0;
-    _ = vm.call(top_func, 0, out);
+    _ = vm.call(closure, 0, out);
 
     vm.source = source_text;
 
@@ -68,9 +73,9 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 
     while (true) {
         if (dbg.options.trace_execution) {
-            dbg.Disassembler.line(frame.function.chunk, frame.ip, vm.source, out);
+            dbg.Disassembler.line(frame.closure.func.chunk, frame.ip, vm.source, out);
             // trace instruction
-            _ = dbg.Disassembler.instruction(frame.function.chunk, frame.ip, vm, out);
+            _ = dbg.Disassembler.instruction(frame.closure.func.chunk, frame.ip, vm, out);
         }
         const inst = @as(OpCode, @enumFromInt(vm.read_byte()));
 
@@ -214,6 +219,11 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 }
                 frame = &vm.frames[vm.frames_count - 1];
             },
+            .closure => {
+                const func = vm.read_constant().as(ObjFunction);
+                const closure = vm.pool.add(ObjClosure, .{func});
+                vm.stack_push(closure);
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
@@ -223,7 +233,9 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
     switch (callee) {
         .obj => |o| {
             switch (o.otype) {
-                .function => return vm.call(callee.as(ObjFunction), arg_count, out),
+                .closure => return vm.call(callee.as(ObjClosure), arg_count, out),
+                // functions should always be wrapped in closures
+                .function => unreachable,
                 .native => {
                     const native = callee.as(ObjNative);
 
@@ -260,9 +272,9 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
     return false;
 }
 
-fn call(vm: *VM, callee: *ObjFunction, arg_count: u32, out: anytype) bool {
-    if (arg_count != callee.arity) {
-        vm.print_runtime_error(out, "Expected {d} arguments but got {d}.", .{ callee.arity, arg_count });
+fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, out: anytype) bool {
+    if (arg_count != callee.func.arity) {
+        vm.print_runtime_error(out, "Expected {d} arguments but got {d}.", .{ callee.func.arity, arg_count });
         return false;
     }
 
@@ -275,7 +287,7 @@ fn call(vm: *VM, callee: *ObjFunction, arg_count: u32, out: anytype) bool {
     vm.frames_count += 1;
     frame.* = undefined;
 
-    frame.function = callee;
+    frame.closure = callee;
     frame.ip = 0;
     frame.slots = vm.stack[vm.stack_top - arg_count - 1 ..];
 
@@ -285,22 +297,22 @@ fn call(vm: *VM, callee: *ObjFunction, arg_count: u32, out: anytype) bool {
 // TODO consider combining these read_ functions into single ones that take a type param
 fn read_byte(vm: *VM) u8 {
     var frame = &vm.frames[vm.frames_count - 1];
-    const b = frame.function.chunk.code.items[frame.ip];
+    const b = frame.closure.func.chunk.code.items[frame.ip];
     frame.ip += 1;
     return b;
 }
 
 fn read_short(vm: *VM) u16 {
     var frame = &vm.frames[vm.frames_count - 1];
-    const hi: u16 = frame.function.chunk.code.items[frame.ip];
-    const lo = frame.function.chunk.code.items[frame.ip + 1];
+    const hi: u16 = frame.closure.func.chunk.code.items[frame.ip];
+    const lo = frame.closure.func.chunk.code.items[frame.ip + 1];
     frame.ip += 2;
     return (hi << 8) | lo;
 }
 
 fn read_constant(vm: *VM) Value {
     var frame = &vm.frames[vm.frames_count - 1];
-    return frame.function.chunk.constants.items[vm.read_byte()];
+    return frame.closure.func.chunk.constants.items[vm.read_byte()];
 }
 
 fn stack_reset(vm: *VM) void {
@@ -353,9 +365,9 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
         var i = vm.frames_count - 1;
         while (i >= 0) : (i -= 1) {
             const frame = &vm.frames[i];
-            const func = frame.function;
+            const func = frame.closure.func;
             const instruction = frame.ip - 1;
-            const line = frame.function.chunk.lines.items[instruction];
+            const line = frame.closure.func.chunk.lines.items[instruction];
 
             out.print("[line {d}] in ", .{line}) catch unreachable;
             if (func.ftype == .script) {
@@ -395,3 +407,4 @@ const Value = vl.Value;
 const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
 const ObjNative = vl.ObjNative;
+const ObjClosure = vl.ObjClosure;

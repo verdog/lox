@@ -884,7 +884,7 @@ fn Parser(comptime Context: type) type {
             p.compiler = inner.enclosing.?;
 
             p.emit_bytes(
-                @intFromEnum(chk.OpCode.constant),
+                @intFromEnum(chk.OpCode.closure),
                 p.compiler.function.chunk.add_constant(val.Value.from(val.ObjFunction, result)),
             );
         }

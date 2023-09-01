@@ -26,6 +26,7 @@ pub const OpCode = enum(u8) {
     jump_if_false,
     loop,
     call,
+    closure,
     _,
 };
 

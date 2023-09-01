@@ -55,6 +55,9 @@ pub const Value = union(enum) {
                     .native => {
                         out.print("<native fn>", .{}) catch unreachable;
                     },
+                    .closure => {
+                        Value.from(ObjFunction, val.as(ObjClosure).func).print(out);
+                    },
                 }
             },
         }
@@ -66,12 +69,14 @@ pub const Obj = struct {
         string,
         function,
         native,
+        closure,
 
         pub fn tag(comptime T: type) Type {
             return switch (T) {
                 ObjString => .string,
                 ObjFunction => .function,
                 ObjNative => .native,
+                ObjClosure => .closure,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -81,6 +86,7 @@ pub const Obj = struct {
                 .string => ObjString,
                 .function => ObjFunction,
                 .native => ObjNative,
+                .closure => ObjClosure,
             };
         }
     };
@@ -195,6 +201,32 @@ pub const ObjNative = struct {
     pub fn deinit(on: *ObjNative, alctr: std.mem.Allocator) void {
         _ = alctr;
         _ = on;
+        // nothing to do
+    }
+};
+
+pub const ObjClosure = struct {
+    obj: Obj,
+    func: *ObjFunction,
+
+    pub fn alloc(func: *ObjFunction, alctr: std.mem.Allocator) *ObjClosure {
+        var obj_c = alctr.create(ObjClosure) catch @panic("OOM");
+        obj_c.init_in_place(func);
+        return obj_c;
+    }
+
+    fn init_in_place(oc: *ObjClosure, func: *ObjFunction) void {
+        oc.* = .{
+            .obj = undefined,
+            .func = func,
+        };
+
+        oc.obj.init_in_place(Obj.Type.tag(ObjClosure));
+    }
+
+    pub fn deinit(oc: *ObjClosure, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        _ = oc;
         // nothing to do
     }
 };
