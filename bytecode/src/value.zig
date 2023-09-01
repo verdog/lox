@@ -166,7 +166,11 @@ pub const ObjFunction = struct {
 };
 
 pub const ObjNative = struct {
-    pub const Fn = *const fn (vm: *VM, args: []Value) Value;
+    pub const Error = error{
+        native_runtime_error,
+    };
+
+    pub const Fn = *const fn (vm: *VM, args: []Value) Error!Value;
 
     obj: Obj,
     function: Fn,

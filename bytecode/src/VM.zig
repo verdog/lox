@@ -36,7 +36,7 @@ pub fn init(alctr: std.mem.Allocator) VM {
 }
 
 fn define_natives(vm: *VM) void {
-    vm.define_native("clock", native_clock, 0);
+    vm.define_native("clock", nat.clock, 0);
 }
 
 pub fn deinit(vm: VM) void {
@@ -233,12 +233,22 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
                     }
 
                     const first_arg_idx = vm.stack_top - arg_count;
-                    const result = native.function(vm, vm.stack[first_arg_idx .. first_arg_idx + arg_count]);
+                    var had_native_error = false;
+                    const result = native.function(vm, vm.stack[first_arg_idx .. first_arg_idx + arg_count]) catch blk: {
+                        had_native_error = true;
+                        break :blk Value{ .nil = {} };
+                    };
 
-                    // pop arguments and push result
-                    vm.stack_top -= arg_count + 1;
-                    vm.stack_push(result);
-                    return true;
+                    if (!had_native_error) {
+                        // pop arguments/function object and push result
+                        vm.stack_top -= arg_count + 1;
+                        vm.stack_push(result);
+                        return true;
+                    } else {
+                        vm.print_runtime_error(out, "Runtime error in native function.", .{});
+                        // print_runtime_error resets the stack
+                        return false;
+                    }
                 },
                 else => {}, // fall through
             }
@@ -368,13 +378,6 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
     }
 
     vm.stack_reset();
-}
-
-fn native_clock(vm: *VM, args: []Value) Value {
-    _ = args;
-    const milliseconds_ellapsed = std.time.milliTimestamp() - vm.start_time;
-    const fme: f64 = @floatFromInt(milliseconds_ellapsed);
-    return Value{ .number = fme / 1000 };
 }
 
 const std = @import("std");
