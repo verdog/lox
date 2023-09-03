@@ -138,6 +138,7 @@ pub const ObjFunction = struct {
     obj: Obj,
     ftype: Type,
     arity: u8,
+    upvalue_count: u8,
     chunk: Chunk,
     name: *const ObjString,
 
@@ -157,6 +158,7 @@ pub const ObjFunction = struct {
             .obj = undefined,
             .ftype = ftype,
             .arity = 0,
+            .upvalue_count = 0,
             .chunk = Chunk.init(alctr),
             .name = fname,
         };

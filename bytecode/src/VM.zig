@@ -200,6 +200,8 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const slot = vm.read_byte();
                 frame.slots[slot] = vm.stack_peek(0);
             },
+            .get_upvalue => unreachable,
+            .set_upvalue => unreachable,
             .jump => {
                 const offset = vm.read_short();
                 frame.ip += offset;

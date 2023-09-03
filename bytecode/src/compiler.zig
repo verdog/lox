@@ -230,20 +230,28 @@ const Local = struct {
     depth: i32,
 };
 
+const Upvalue = struct {
+    index: u8,
+    is_local: bool,
+};
+
 const Compiler = struct {
     function: *val.ObjFunction,
     locals: [locals_capacity]Local,
     locals_count: i16,
+    upvalues: [locals_capacity]Upvalue,
     scope_depth: i32,
     enclosing: ?*Compiler,
 
     const locals_capacity = std.math.maxInt(u8) + 1;
+    const upvalues_capacity = locals_capacity;
 
     pub fn init(f: *val.ObjFunction, enclosing: ?*Compiler) Compiler {
         var c = Compiler{
             .function = f,
             .locals = undefined,
             .locals_count = 1, // slot 0 reserved below
+            .upvalues = undefined,
             .scope_depth = 0,
             .enclosing = enclosing,
         };
@@ -287,6 +295,68 @@ const Compiler = struct {
             const name = if (comp.function.ftype == .script) "<script>" else comp.function.name.buf;
             dbg.Disassembler.chunk(comp.function.chunk, name, source, out);
         }
+    }
+
+    pub fn resolve_local(c: *Compiler, name: Token) !i16 {
+        var i = c.locals_count - 1;
+        while (i >= 0) : (i -= 1) {
+            const local = &c.locals[@intCast(i)];
+            if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
+                if (local.depth == -1) {
+                    return error.recursive_init;
+                }
+                return i;
+            }
+        }
+
+        return -1;
+    }
+
+    pub fn add_local(c: *Compiler, name: Token) !void {
+        if (c.locals_count == Compiler.locals_capacity) {
+            return error.too_many_locals;
+        }
+        var new_local_mem = &c.locals[@intCast(c.locals_count)];
+        c.locals_count += 1;
+        new_local_mem.name = name;
+        new_local_mem.depth = -1; // -1 means uninitialized
+    }
+
+    pub fn resolve_upvalue(c: *Compiler, name: Token) !i16 {
+        if (c.enclosing) |enclosing| {
+            const local = try enclosing.resolve_local(name);
+            if (local != -1) {
+                return enclosing.add_upvalue(@truncate(@as(u16, @intCast(local))), true);
+            } else {
+                return -1;
+            }
+        } else {
+            return -1;
+        }
+    }
+
+    pub fn add_upvalue(c: *Compiler, index: u8, is_local: bool) !i16 {
+        var upvalue_count = c.function.upvalue_count;
+
+        if (upvalue_count == Compiler.upvalues_capacity) {
+            return error.too_many_upvalues;
+        }
+
+        {
+            var i: u8 = 0;
+            while (i < upvalue_count) : (i += 1) {
+                const upvalue = c.upvalues[i];
+                // XXX: use std.mem.eql here?
+                if (upvalue.index == index and upvalue.is_local == is_local) {
+                    return i;
+                }
+            }
+        }
+
+        c.upvalues[upvalue_count].is_local = is_local;
+        c.upvalues[upvalue_count].index = index;
+        c.function.upvalue_count += 1;
+        return c.function.upvalue_count;
     }
 
     pub fn emit_byte(comp: *Compiler, b: u8, line: i32) void {
@@ -559,17 +629,6 @@ fn Parser(comptime Context: type) type {
             p.add_local(name);
         }
 
-        fn add_local(p: *P, name: Token) void {
-            if (p.compiler.locals_count == Compiler.locals_capacity) {
-                p.print_error_msg("Too many local variables in function.");
-                return;
-            }
-            var new_local_mem = &p.compiler.locals[@intCast(p.compiler.locals_count)];
-            p.compiler.locals_count += 1;
-            new_local_mem.name = name;
-            new_local_mem.depth = -1; // -1 means uninitialized
-        }
-
         fn identifier_constant(p: *P, name: Token) u8 {
             return p.compiler.function.chunk.add_constant(p.pool.make_string_value(name.lexeme));
         }
@@ -729,14 +788,25 @@ fn Parser(comptime Context: type) type {
         }
 
         fn named_variable(p: *P, name: Token, can_assign: bool) void {
+            var arg: i16 = undefined;
             var get_op: u8 = undefined;
             var set_op: u8 = undefined;
-            var arg = p.resolve_local(name);
 
-            if (arg != -1) {
-                get_op = @intFromEnum(chk.OpCode.get_local);
-                set_op = @intFromEnum(chk.OpCode.set_local);
-            } else {
+            blk: {
+                arg = p.resolve_local(name);
+                if (arg != -1) {
+                    get_op = @intFromEnum(chk.OpCode.get_local);
+                    set_op = @intFromEnum(chk.OpCode.set_local);
+                    break :blk;
+                }
+
+                arg = p.resolve_upvalue(name);
+                if (arg != -1) {
+                    get_op = @intFromEnum(chk.OpCode.get_upvalue);
+                    set_op = @intFromEnum(chk.OpCode.set_upvalue);
+                    break :blk;
+                }
+
                 arg = p.identifier_constant(name);
                 get_op = @intFromEnum(chk.OpCode.get_global);
                 set_op = @intFromEnum(chk.OpCode.set_global);
@@ -751,18 +821,21 @@ fn Parser(comptime Context: type) type {
         }
 
         fn resolve_local(p: *P, name: Token) i16 {
-            var i = p.compiler.locals_count - 1;
-            while (i >= 0) : (i -= 1) {
-                const local = &p.compiler.locals[@intCast(i)];
-                if (std.mem.eql(u8, name.lexeme, local.name.lexeme)) {
-                    if (local.depth == -1) {
-                        p.print_error_msg("Can't read local variable in its own initializer.");
-                    }
-                    return i;
-                }
-            }
+            return p.compiler.resolve_local(name) catch |e| {
+                p.print_error(e);
+                return -1;
+            };
+        }
 
-            return -1;
+        fn add_local(p: *P, name: Token) void {
+            p.compiler.add_local(name) catch |e| p.print_error(e);
+        }
+
+        fn resolve_upvalue(p: *P, name: Token) i16 {
+            return p.compiler.resolve_upvalue(name) catch |e| {
+                p.print_error(e);
+                return -1;
+            };
         }
 
         pub fn expression(p: *P) void {

@@ -104,6 +104,8 @@ pub const Disassembler = struct {
 
             .get_local,
             .set_local,
+            .get_upvalue, // ?
+            .set_upvalue, // ?
             .call,
             => return byte_inst(opcode, ch, offset, vm, out),
 
