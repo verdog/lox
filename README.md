@@ -18,3 +18,5 @@ Try an example:
 $ cd bytecode
 $ zig build run -- ./examples/breakfast.lox
 ```
+
+Use zig 0.11.0.
