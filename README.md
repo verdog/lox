@@ -131,8 +131,7 @@ offset byte line meaning          encoded data     stack before inst. exec.
                1 var food = "toast";
 0x0000 0x01      constant                          | [ <fn <script>> ] 
 0x0001 0x01        (constant)     "toast"          | [ <fn <script>> ] 
-0x0002 0x10      define_global                     | debug(value): freed 15 objs
-[ <fn <script>> ][ toast ] 
+0x0002 0x10      define_global                     | [ <fn <script>> ][ toast ] 
 0x0003 0x00        (constant)     "food"           | [ <fn <script>> ][ toast ] 
 
                2 var beverage = "coffee";
