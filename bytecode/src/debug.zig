@@ -104,8 +104,8 @@ pub const Disassembler = struct {
 
             .get_local,
             .set_local,
-            .get_upvalue, // ?
-            .set_upvalue, // ?
+            .get_upvalue,
+            .set_upvalue,
             .call,
             => return byte_inst(opcode, ch, offset, vm, out),
 
@@ -117,8 +117,22 @@ pub const Disassembler = struct {
 
             .closure => {
                 emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
-                constant(ch, offset + 1, vm, out);
-                return offset + 2;
+                const func_idx = constant(ch, offset + 1, vm, out);
+
+                var w_offset = offset + 2;
+
+                const func = ch.constants.items[func_idx].as(ObjFunction);
+                for (0..func.upvalue_count) |_| {
+                    const is_local = ch.code.items[w_offset];
+                    const index = ch.code.items[w_offset + 1];
+
+                    emit_line(w_offset, is_local, "  (is local?)", "", vm, out);
+                    w_offset += 1;
+                    emit_line(w_offset, index, "  (index)", "", vm, out);
+                    w_offset += 1;
+                }
+
+                return w_offset;
             },
 
             _ => {
@@ -135,11 +149,11 @@ pub const Disassembler = struct {
 
     fn constant_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
         emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
-        constant(ch, offset + 1, vm, out);
+        _ = constant(ch, offset + 1, vm, out);
         return offset + 2;
     }
 
-    fn constant(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) void {
+    fn constant(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
         const constant_byte = ch.code.items[offset];
         const val = ch.constants.items[constant_byte];
         var val_buf: [16]u8 = undefined;
@@ -193,6 +207,7 @@ pub const Disassembler = struct {
         };
 
         emit_line(offset, constant_byte, "  (constant)", val_str, vm, out);
+        return constant_byte;
     }
 
     fn byte_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {

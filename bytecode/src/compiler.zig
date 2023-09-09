@@ -325,11 +325,14 @@ const Compiler = struct {
     pub fn resolve_upvalue(c: *Compiler, name: Token) !i16 {
         if (c.enclosing) |enclosing| {
             const local = try enclosing.resolve_local(name);
-            if (local != -1) {
-                return enclosing.add_upvalue(@truncate(@as(u16, @intCast(local))), true);
-            } else {
-                return -1;
-            }
+            if (local != -1)
+                return c.add_upvalue(@truncate(@as(u16, @intCast(local))), true);
+
+            const upvalue = try enclosing.resolve_upvalue(name);
+            if (upvalue != -1)
+                return c.add_upvalue(@truncate(@as(u16, @intCast(upvalue))), false);
+
+            return -1;
         } else {
             return -1;
         }
@@ -342,20 +345,17 @@ const Compiler = struct {
             return error.too_many_upvalues;
         }
 
-        {
-            var i: u8 = 0;
-            while (i < upvalue_count) : (i += 1) {
-                const upvalue = c.upvalues[i];
-                // XXX: use std.mem.eql here?
-                if (upvalue.index == index and upvalue.is_local == is_local) {
-                    return i;
-                }
+        for (0..upvalue_count) |i| {
+            const upvalue = c.upvalues[i];
+            // XXX: use std.mem.eql here?
+            if (upvalue.index == index and upvalue.is_local == is_local) {
+                return @as(i16, @intCast(i));
             }
         }
 
         c.upvalues[upvalue_count].is_local = is_local;
         c.upvalues[upvalue_count].index = index;
-        c.function.upvalue_count += 1;
+        defer c.function.upvalue_count += 1;
         return c.function.upvalue_count;
     }
 
@@ -960,6 +960,13 @@ fn Parser(comptime Context: type) type {
                 @intFromEnum(chk.OpCode.closure),
                 p.compiler.function.chunk.add_constant(val.Value.from(val.ObjFunction, result)),
             );
+
+            for (0..result.upvalue_count) |i| {
+                p.emit_bytes(
+                    @intFromBool(inner.upvalues[i].is_local),
+                    inner.upvalues[i].index,
+                );
+            }
         }
 
         fn call(p: *P, can_assign: bool) void {
@@ -1098,7 +1105,7 @@ pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype
     var outer_f = pool.add(val.ObjFunction, .{ undefined, .script }).as(val.ObjFunction);
     var comp = Compiler.init(outer_f, null);
 
-    const ctx = .{ .out = err_printer };
+    const ctx = .{ .out = usx.err };
     var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
 
     p.advance();
