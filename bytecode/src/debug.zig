@@ -125,10 +125,14 @@ pub const Disassembler = struct {
                 for (0..func.upvalue_count) |_| {
                     const is_local = ch.code.items[w_offset];
                     const index = ch.code.items[w_offset + 1];
+                    const index_val = Value{ .number = @floatFromInt(index) };
 
-                    emit_line(w_offset, is_local, "  (is local?)", "", vm, out);
+                    const str = if (is_local != 0) "local" else "upvalue";
+                    var val_buf: [16]u8 = undefined;
+
+                    emit_line(w_offset, is_local, "  (loc. or upv.)", str, vm, out);
                     w_offset += 1;
-                    emit_line(w_offset, index, "  (index)", "", vm, out);
+                    emit_line(w_offset, index, "  (index)", stringify_value(index_val, &val_buf), vm, out);
                     w_offset += 1;
                 }
 
@@ -153,59 +157,60 @@ pub const Disassembler = struct {
         return offset + 2;
     }
 
+    fn stringify_value(val: Value, buf: *[16]u8) []u8 {
+        switch (val) {
+            .number => |n| {
+                const digits = @floor(std.math.log10(n)) + 1;
+                if (digits <= 16) {
+                    return std.fmt.bufPrint(buf, "{d: <16}", .{n}) catch unreachable;
+                } else {
+                    return std.fmt.bufPrint(buf, " ...    ", .{}) catch unreachable;
+                }
+            },
+            .booln => |b| return std.fmt.bufPrint(buf, "{: <16}", .{b}) catch unreachable,
+            .nil => return std.fmt.bufPrint(buf, "(nil)", .{}) catch unreachable,
+            .obj => |o| {
+                switch (o.otype) {
+                    .string => {
+                        const strbuf = val.as(ObjString).buf;
+                        const spaces = " " ** 64;
+                        if (strbuf.len <= 14) {
+                            return std.fmt.bufPrint(buf, "\"{s}\"{s}", .{ strbuf, spaces[0..(14 - strbuf.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "\"{s}\".", .{strbuf[0..13]}) catch unreachable;
+                        }
+                    },
+                    .function => {
+                        const name = val.as(ObjFunction).name.buf;
+                        const spaces = " " ** 64;
+                        if (name.len <= 14) {
+                            return std.fmt.bufPrint(buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "<{s}>.", .{name[0..13]}) catch unreachable;
+                        }
+                    },
+                    .native => {
+                        return std.fmt.bufPrint(buf, "<native fn>", .{}) catch unreachable;
+                    },
+                    .closure => {
+                        const name = val.as(ObjClosure).func.name.buf;
+                        const spaces = " " ** 64;
+                        if (name.len <= 14) {
+                            return std.fmt.bufPrint(buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "<{s}>.", .{name[0..13]}) catch unreachable;
+                        }
+                    },
+                }
+            },
+        }
+    }
+
     fn constant(ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
         const constant_byte = ch.code.items[offset];
         const val = ch.constants.items[constant_byte];
-        var val_buf: [16]u8 = undefined;
-        const val_str = blk: {
-            switch (val) {
-                .number => |n| {
-                    const digits = @floor(std.math.log10(n)) + 1;
-                    if (digits <= 16) {
-                        break :blk std.fmt.bufPrint(&val_buf, "{d: <16}", .{n}) catch unreachable;
-                    } else {
-                        break :blk std.fmt.bufPrint(&val_buf, " ...    ", .{}) catch unreachable;
-                    }
-                },
-                .booln => |b| break :blk std.fmt.bufPrint(&val_buf, "{: <16}", .{b}) catch unreachable,
-                .nil => break :blk std.fmt.bufPrint(&val_buf, "(nil)", .{}) catch unreachable,
-                .obj => |o| {
-                    switch (o.otype) {
-                        .string => {
-                            const buf = val.as(ObjString).buf;
-                            const spaces = " " ** 64;
-                            if (buf.len <= 14) {
-                                break :blk std.fmt.bufPrint(&val_buf, "\"{s}\"{s}", .{ buf, spaces[0..(14 - buf.len)] }) catch unreachable;
-                            } else {
-                                break :blk std.fmt.bufPrint(&val_buf, "\"{s}\".", .{buf[0..13]}) catch unreachable;
-                            }
-                        },
-                        .function => {
-                            const name = val.as(ObjFunction).name.buf;
-                            const spaces = " " ** 64;
-                            if (name.len <= 14) {
-                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
-                            } else {
-                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>.", .{name[0..13]}) catch unreachable;
-                            }
-                        },
-                        .native => {
-                            break :blk std.fmt.bufPrint(&val_buf, "<native fn>", .{}) catch unreachable;
-                        },
-                        .closure => {
-                            const name = val.as(ObjClosure).func.name.buf;
-                            const spaces = " " ** 64;
-                            if (name.len <= 14) {
-                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
-                            } else {
-                                break :blk std.fmt.bufPrint(&val_buf, "<{s}>.", .{name[0..13]}) catch unreachable;
-                            }
-                        },
-                    }
-                },
-            }
-        };
-
+        var buf: [16]u8 = undefined;
+        const val_str = stringify_value(val, &buf);
         emit_line(offset, constant_byte, "  (constant)", val_str, vm, out);
         return constant_byte;
     }
