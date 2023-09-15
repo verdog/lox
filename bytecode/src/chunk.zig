@@ -63,9 +63,11 @@ pub const Chunk = struct {
         return c.write(@intFromEnum(opcode), line);
     }
 
-    pub fn add_constant(c: *Chunk, val: value.Value) u8 {
+    pub fn add_constant(c: *Chunk, val: value.Value) !u8 {
+        if (c.constants.items.len == std.math.maxInt(u8) + 1) {
+            return error.too_many_constants;
+        }
         c.constants.append(val) catch @panic("OOM");
-        std.debug.assert(c.constants.items.len < std.math.maxInt(u8));
         return @intCast(c.constants.items.len - 1);
     }
 };

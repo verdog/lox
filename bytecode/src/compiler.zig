@@ -50,7 +50,7 @@ const Scanner = struct {
             '"' => return s.string(),
 
             else => {
-                std.debug.print("\"{c}\"\n", .{c});
+                // std.debug.print("\"{c}\"\n", .{c});
                 return s.make_error_token("Unexpected character.");
             },
         }
@@ -344,7 +344,7 @@ const Compiler = struct {
     }
 
     pub fn add_upvalue(c: *Compiler, index: u8, is_local: bool) !i16 {
-        var upvalue_count = c.function.upvalue_count;
+        var upvalue_count = @as(usize, @intCast(c.function.upvalue_count));
 
         if (upvalue_count == Compiler.upvalues_capacity) {
             return error.too_many_upvalues;
@@ -368,9 +368,9 @@ const Compiler = struct {
         comp.function.chunk.write(b, line);
     }
 
-    pub fn emit_constant(comp: *Compiler, value: val.Value, line: i32) void {
+    pub fn emit_constant(comp: *Compiler, value: val.Value, line: i32) !void {
         comp.emit_byte(@intFromEnum(chk.OpCode.constant), line);
-        comp.emit_byte(comp.function.chunk.add_constant(value), line);
+        comp.emit_byte(try comp.function.chunk.add_constant(value), line);
     }
 
     pub fn emit_jump(comp: *Compiler, o: chk.OpCode, line: i32) i32 {
@@ -564,21 +564,21 @@ fn Parser(comptime Context: type) type {
         }
 
         fn fun_declaration(p: *P) void {
-            const global = p.parse_variable("Expected function name.");
+            const global = p.parse_variable("Expect function name.");
             p.mark_top_local_as_initialized();
             p.function(.function);
             p.define_variable(global);
         }
 
         fn var_declaration(p: *P) void {
-            const global = p.parse_variable("Expected variable name.");
+            const global = p.parse_variable("Expect variable name.");
 
             if (p.match(.eql)) {
                 p.expression();
             } else {
                 p.emit_op(.nil);
             }
-            p.consume(.semicolon, "Expected ';' after variable declaration.");
+            p.consume(.semicolon, "Expect ';' after variable declaration.");
 
             p.define_variable(global);
         }
@@ -635,7 +635,14 @@ fn Parser(comptime Context: type) type {
         }
 
         fn identifier_constant(p: *P, name: Token) u8 {
-            return p.compiler.function.chunk.add_constant(p.pool.make_string_value(name.lexeme));
+            const maybe_new_constant =
+                p.compiler.function.chunk.add_constant(p.pool.make_string_value(name.lexeme));
+            if (maybe_new_constant) |nc| {
+                return nc;
+            } else |e| {
+                p.print_error(e);
+                return 0;
+            }
         }
 
         fn statement(p: *P) void {
@@ -660,19 +667,19 @@ fn Parser(comptime Context: type) type {
 
         fn print_statement(p: *P) void {
             p.expression();
-            p.consume(.semicolon, "Expected ';' after value.");
+            p.consume(.semicolon, "Expect ';' after value.");
             p.emit_op(.print);
         }
 
         fn expression_statement(p: *P) void {
             p.expression();
-            p.consume(.semicolon, "Expected ';' after expression.");
+            p.consume(.semicolon, "Expect ';' after expression.");
             p.emit_op(.pop);
         }
 
         fn for_statement(p: *P) void {
             p.begin_scope();
-            p.consume(.lparen, "Expected '(' after 'for'.");
+            p.consume(.lparen, "Expect '(' after 'for'.");
             if (p.match(.semicolon)) {
                 // no initializer present.
             } else if (p.match(.@"var")) {
@@ -687,7 +694,7 @@ fn Parser(comptime Context: type) type {
             var exit_jump: i32 = -1;
             if (!p.match(.semicolon)) {
                 p.expression();
-                p.consume(.semicolon, "Expected ';' after loop condition.");
+                p.consume(.semicolon, "Expect ';' after loop condition.");
 
                 // jump out of the loop if the condition is false
                 exit_jump = p.emit_jump(.jump_if_false);
@@ -699,7 +706,7 @@ fn Parser(comptime Context: type) type {
                 const incr_start = p.compiler.function.chunk.code.items.len;
                 p.expression();
                 p.emit_op(.pop);
-                p.consume(.rparen, "Expected ')' after for clauses.");
+                p.consume(.rparen, "Expect ')' after for clauses.");
 
                 p.emit_loop(loop_start) catch |e| p.print_error(e);
                 loop_start = incr_start;
@@ -718,9 +725,9 @@ fn Parser(comptime Context: type) type {
         }
 
         fn if_statement(p: *P) void {
-            p.consume(.lparen, "Expected '(' after 'if'.");
+            p.consume(.lparen, "Expect '(' after 'if'.");
             p.expression();
-            p.consume(.rparen, "Expected ')' after condition.");
+            p.consume(.rparen, "Expect ')' after condition.");
 
             const then_jump = p.emit_jump(.jump_if_false);
             p.emit_op(.pop); // clean up condition result
@@ -745,16 +752,16 @@ fn Parser(comptime Context: type) type {
                 p.emit_return();
             } else {
                 p.expression();
-                p.consume(.semicolon, "Expected ';' after return value.");
+                p.consume(.semicolon, "Expect ';' after return value.");
                 p.emit_op(.@"return");
             }
         }
 
         fn while_statement(p: *P) void {
             const loop_start = p.compiler.function.chunk.code.items.len;
-            p.consume(.lparen, "Expected '(' after 'if'.");
+            p.consume(.lparen, "Expect '(' after 'if'.");
             p.expression();
-            p.consume(.rparen, "Expected ')' after condition.");
+            p.consume(.rparen, "Expect ')' after condition.");
 
             const exit_jump = p.emit_jump(.jump_if_false);
             p.emit_op(.pop); // clean up condition result
@@ -770,7 +777,7 @@ fn Parser(comptime Context: type) type {
                 p.declaration();
             }
 
-            p.consume(.rbrace, "Expected '}' after block.");
+            p.consume(.rbrace, "Expect '}' after block.");
         }
 
         fn begin_scope(p: *P) void {
@@ -875,7 +882,7 @@ fn Parser(comptime Context: type) type {
         pub fn grouping(p: *P, can_assign: bool) void {
             _ = can_assign;
             p.expression();
-            p.consume(.rparen, "Expected ')' after expression.");
+            p.consume(.rparen, "Expect ')' after expression.");
         }
 
         pub fn unary(p: *P, can_assign: bool) void {
@@ -942,20 +949,21 @@ fn Parser(comptime Context: type) type {
             // no need to close this scope since we toss the whole compiler at the end
             p.begin_scope();
 
-            p.consume(.lparen, "Expected '(' after function name.");
+            p.consume(.lparen, "Expect '(' after function name.");
             if (!p.check(.rparen)) {
                 var matched = true;
                 while (matched) : (matched = p.match(.comma)) {
-                    p.compiler.function.arity += 1;
-                    if (p.compiler.function.arity > std.math.maxInt(u8)) {
+                    if (p.compiler.function.arity < std.math.maxInt(u8)) {
+                        p.compiler.function.arity += 1;
+                    } else {
                         p.print_error_at_current("Can't have more than 255 parameters.");
                     }
-                    const constant = p.parse_variable("Expected parameter name.");
+                    const constant = p.parse_variable("Expect parameter name.");
                     p.define_variable(constant);
                 }
             }
-            p.consume(.rparen, "Expected ')' after parameters.");
-            p.consume(.lbrace, "Expected '{' before function body.");
+            p.consume(.rparen, "Expect ')' after parameters.");
+            p.consume(.lbrace, "Expect '{' before function body.");
 
             p.block_statement();
 
@@ -965,12 +973,12 @@ fn Parser(comptime Context: type) type {
             }
             p.compiler = inner.enclosing.?;
 
-            p.emit_bytes(
-                @intFromEnum(chk.OpCode.closure),
-                p.compiler.function.chunk.add_constant(val.Value.from(val.ObjFunction, result)),
-            );
+            const new_constant =
+                p.compiler.function.chunk.add_constant(val.Value.from(val.ObjFunction, result)) catch |e| return p.print_error(e);
 
-            for (0..result.upvalue_count) |i| {
+            p.emit_bytes(@intFromEnum(chk.OpCode.closure), new_constant);
+
+            for (0..@intCast(result.upvalue_count)) |i| {
                 p.emit_bytes(
                     @intFromBool(inner.upvalues[i].is_local),
                     inner.upvalues[i].index,
@@ -995,7 +1003,7 @@ fn Parser(comptime Context: type) type {
                     arg_count +%= 1;
                 }
             }
-            p.consume(.rparen, "Expected ')' after arguments.");
+            p.consume(.rparen, "Expect ')' after arguments.");
             return arg_count;
         }
 
@@ -1013,7 +1021,7 @@ fn Parser(comptime Context: type) type {
                 p.advance();
                 const rule = p.get_rule(p.previous.typ);
                 if (rule.prefix == &P.unimpl) {
-                    p.print_error_msg("Expected expression.");
+                    p.print_error_msg("Expect expression.");
                     return;
                 }
                 rule.prefix(p, can_assign);
@@ -1034,10 +1042,13 @@ fn Parser(comptime Context: type) type {
             switch (e) {
                 error.jump_too_large => p.print_error_msg("Jump too large."),
                 error.loop_body_too_large => p.print_error_msg("Loop body too large."),
-                error.recursive_init => p.print_error_msg("Can't initialize variable with itself."),
+                error.recursive_init => p.print_error_msg("Can't read local variable in its own initializer."),
+                error.too_many_locals => p.print_error_msg("Too many local variables in function."),
+                error.too_many_constants => p.print_error_msg("Too many constants in one chunk."),
+                error.too_many_upvalues => p.print_error_msg("Too many closure variables in function."),
                 else => {
-                    std.debug.assert(false);
-                    p.print_error_msg("Unknown error.");
+                    // std.debug.assert(false);
+                    p.print_error_msg(@errorName(e));
                 },
             }
         }
@@ -1089,7 +1100,7 @@ fn Parser(comptime Context: type) type {
         }
 
         fn emit_constant(p: *P, value: val.Value) void {
-            p.compiler.emit_constant(value, p.previous.line);
+            p.compiler.emit_constant(value, p.previous.line) catch |e| p.print_error(e);
         }
 
         fn emit_jump(p: *P, o: chk.OpCode) i32 {

@@ -98,12 +98,18 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 frame = &vm.frames[vm.frames_count - 1];
             },
             .print => {
-                const make_blue = "\x1b[94m";
-                const make_bold = "\x1b[1m";
-                const reset_color = "\x1b[0m";
-                out.print("{s}{s}", .{ make_bold, make_blue }) catch unreachable;
+                if (dbg.options.print_color) {
+                    const make_blue = "\x1b[94m";
+                    const make_bold = "\x1b[1m";
+                    out.print("{s}{s}", .{ make_bold, make_blue }) catch unreachable;
+                }
                 vm.stack_pop().print(out);
-                out.print("{s}\n", .{reset_color}) catch unreachable;
+                if (dbg.options.print_color) {
+                    const reset_color = "\x1b[0m";
+                    out.print("{s}\n", .{reset_color}) catch unreachable;
+                } else {
+                    out.print("\n", .{}) catch unreachable;
+                }
             },
             .constant => {
                 const constant = vm.read_constant();
@@ -162,7 +168,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                     });
                 } else {
                     if (op == .add) {
-                        vm.print_runtime_error(out, "Operands must be numbers or strings.", .{});
+                        vm.print_runtime_error(out, "Operands must be two numbers or two strings.", .{});
                     } else {
                         vm.print_runtime_error(out, "Operands must be numbers.", .{});
                     }
@@ -314,7 +320,7 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
                     const native = callee.as(ObjNative);
 
                     if (native.arity != arg_count) {
-                        vm.print_runtime_error(out, "Expected {d} arguments, got {d}.", .{ native.arity, arg_count });
+                        vm.print_runtime_error(out, "Expect {d} arguments, got {d}.", .{ native.arity, arg_count });
                         return false;
                     }
 
@@ -432,8 +438,13 @@ fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn, arity: u8) void {
 }
 
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
-    out.print(fmt, vars) catch unreachable;
-    out.print("\n", .{}) catch unreachable;
+    usx.err.print(fmt, vars) catch unreachable;
+    usx.err.print("\n", .{}) catch unreachable;
+
+    // XXX: refactor this to either not take the argument (which is currently stdout, and
+    // should be stderr) and always use stderr, or implement an output and error stream in
+    // the vm.
+    _ = out;
 
     {
         var i = vm.frames_count - 1;
@@ -443,11 +454,11 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
             const instruction = frame.ip - 1;
             const line = frame.closure.func.chunk.lines.items[instruction];
 
-            out.print("[line {d}] in ", .{line}) catch unreachable;
+            usx.err.print("[line {d}] in ", .{line}) catch unreachable;
             if (func.ftype == .script) {
-                out.print("script\n", .{}) catch unreachable;
+                usx.err.print("script\n", .{}) catch unreachable;
             } else {
-                out.print("{s}()\n", .{func.name.buf}) catch unreachable;
+                usx.err.print("{s}()\n", .{func.name.buf}) catch unreachable;
             }
 
             if (i == 0) break; // last frame, decrement would underflow
@@ -455,11 +466,11 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
     }
 
     if (dbg.options.dump_stack_on_runtime_error) {
-        out.print("Stack, starting at bottom:\n", .{}) catch unreachable;
+        usx.err.print("Stack, starting at bottom:\n", .{}) catch unreachable;
         var i = @as(usize, 0);
         while (i < vm.stack_top) : (i += 1) {
-            vm.stack[i].print(out);
-            out.print("\n", .{}) catch unreachable;
+            vm.stack[i].print(usx.err);
+            usx.err.print("\n", .{}) catch unreachable;
         }
     }
 
@@ -474,6 +485,7 @@ const dbg = @import("debug.zig");
 const cpl = @import("compiler.zig");
 const tbl = @import("table.zig");
 const nat = @import("native.zig");
+const usx = @import("ux.zig");
 
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;

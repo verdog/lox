@@ -3,7 +3,7 @@ pub const std_options = struct {
 };
 
 pub fn main() !u8 {
-    defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
+    // defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
     defer ux.stdout_buffer.flush() catch {};
 
     if (std.os.argv.len > 2) {
@@ -13,11 +13,11 @@ pub fn main() !u8 {
     } else if (std.os.argv.len == 2) {
         run_file(std.mem.sliceTo(std.os.argv[1], '\x00')) catch |e| switch (e) {
             VM.Error.compile_error => {
-                try ux.out.print("Compile error\n", .{});
+                // try ux.out.print("Compile error\n", .{});
                 return 65;
             },
             VM.Error.runtime_error => {
-                try ux.out.print("Runtime error\n", .{});
+                // try ux.out.print("Runtime error\n", .{});
                 return 70;
             },
             else => return e,
@@ -48,8 +48,10 @@ fn run_file(path: []const u8) !void {
     };
     defer heap.free(bytes);
 
-    dbg.Disassembler.border(path, ux.out);
-    ux.out.print("{s}\n", .{bytes}) catch unreachable;
+    if (dbg.options.print_code) {
+        dbg.Disassembler.border(path, ux.out);
+        ux.out.print("{s}\n", .{bytes}) catch unreachable;
+    }
 
     var vm = VM.init(heap);
     defer vm.deinit();

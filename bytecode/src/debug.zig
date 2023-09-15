@@ -1,8 +1,9 @@
 //! debug tools
 
 pub const DebugOptions = struct {
-    trace_execution: bool = true,
-    print_code: bool = true,
+    trace_execution: bool = false,
+    print_code: bool = false,
+    print_color: bool = false,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
 };
 
@@ -123,7 +124,7 @@ pub const Disassembler = struct {
                 var w_offset = offset + 2;
 
                 const func = ch.constants.items[func_idx].as(ObjFunction);
-                for (0..func.upvalue_count) |_| {
+                for (0..@intCast(func.upvalue_count)) |_| {
                     const is_local = ch.code.items[w_offset];
                     const index = ch.code.items[w_offset + 1];
                     const index_val = Value{ .number = @floatFromInt(index) };
@@ -169,7 +170,7 @@ pub const Disassembler = struct {
                 }
             },
             .booln => |b| return std.fmt.bufPrint(buf, "{: <16}", .{b}) catch unreachable,
-            .nil => return std.fmt.bufPrint(buf, "(nil)", .{}) catch unreachable,
+            .nil => return std.fmt.bufPrint(buf, "nil", .{}) catch unreachable,
             .obj => |o| {
                 switch (o.otype) {
                     .string => {

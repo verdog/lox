@@ -38,9 +38,9 @@ pub const Value = union(enum) {
 
     pub fn print(val: Value, out: anytype) void {
         switch (val) {
-            .number => |n| out.print("{d:.4}", .{n}) catch unreachable,
+            .number => |n| out.print("{d}", .{n}) catch unreachable,
             .booln => |b| out.print("{}", .{b}) catch unreachable,
-            .nil => out.print("(nil)", .{}) catch unreachable,
+            .nil => out.print("nil", .{}) catch unreachable,
             .obj => |o| {
                 switch (o.otype) {
                     .string => {
@@ -146,7 +146,7 @@ pub const ObjFunction = struct {
     obj: Obj,
     ftype: Type,
     arity: u8,
-    upvalue_count: u8,
+    upvalue_count: i16,
     chunk: Chunk,
     name: *const ObjString,
 
@@ -230,7 +230,7 @@ pub const ObjClosure = struct {
         oc.* = .{
             .obj = undefined,
             .func = func,
-            .upvalues = alctr.alloc(*ObjUpvalue, func.upvalue_count) catch @panic("OOM"),
+            .upvalues = alctr.alloc(*ObjUpvalue, @intCast(func.upvalue_count)) catch @panic("OOM"),
         };
 
         // book nulls all the upvalue pointers here to protect from gc... i'm going to see
@@ -304,7 +304,7 @@ pub const ObjPool = struct {
             }
             m_obj = next;
         }
-        log.debug("freed {d} objs", .{count});
+        // log.debug("freed {d} objs", .{count});
 
         // free cached strings
         pl.cached_strings.deinit();
