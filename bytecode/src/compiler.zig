@@ -228,6 +228,7 @@ const Token = struct {
 const Local = struct {
     name: Token,
     depth: i32,
+    is_captured: bool,
 };
 
 const Upvalue = struct {
@@ -259,6 +260,7 @@ const Compiler = struct {
         var reserved_local = &c.locals[0];
         reserved_local.depth = 0;
         reserved_local.name.lexeme = ""; // so the user can't refer to it
+        reserved_local.is_captured = false;
 
         return c;
     }
@@ -320,13 +322,16 @@ const Compiler = struct {
         c.locals_count += 1;
         new_local_mem.name = name;
         new_local_mem.depth = -1; // -1 means uninitialized
+        new_local_mem.is_captured = false;
     }
 
     pub fn resolve_upvalue(c: *Compiler, name: Token) !i16 {
         if (c.enclosing) |enclosing| {
             const local = try enclosing.resolve_local(name);
-            if (local != -1)
+            if (local != -1) {
+                enclosing.locals[@intCast(local)].is_captured = true;
                 return c.add_upvalue(@truncate(@as(u16, @intCast(local))), true);
+            }
 
             const upvalue = try enclosing.resolve_upvalue(name);
             if (upvalue != -1)
@@ -778,7 +783,11 @@ fn Parser(comptime Context: type) type {
             while (p.compiler.locals_count > 0 and
                 p.compiler.locals[@intCast(p.compiler.locals_count - 1)].depth > p.compiler.scope_depth)
             {
-                p.emit_op(.pop);
+                if (p.compiler.locals[@intCast(p.compiler.locals_count - 1)].is_captured) {
+                    p.emit_op(.close_upvalue);
+                } else {
+                    p.emit_op(.pop);
+                }
                 p.compiler.locals_count -= 1;
             }
         }
@@ -1025,6 +1034,7 @@ fn Parser(comptime Context: type) type {
             switch (e) {
                 error.jump_too_large => p.print_error_msg("Jump too large."),
                 error.loop_body_too_large => p.print_error_msg("Loop body too large."),
+                error.recursive_init => p.print_error_msg("Can't initialize variable with itself."),
                 else => {
                     std.debug.assert(false);
                     p.print_error_msg("Unknown error.");

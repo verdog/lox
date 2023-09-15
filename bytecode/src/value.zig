@@ -58,6 +58,11 @@ pub const Value = union(enum) {
                     .closure => {
                         Value.from(ObjFunction, val.as(ObjClosure).func).print(out);
                     },
+                    .upvalue => {
+                        // should never be visible to users
+                        std.debug.assert(false);
+                        out.print("{{upvalue {d}}}", .{@intFromPtr(val.obj)}) catch unreachable;
+                    },
                 }
             },
         }
@@ -70,6 +75,7 @@ pub const Obj = struct {
         function,
         native,
         closure,
+        upvalue,
 
         pub fn tag(comptime T: type) Type {
             return switch (T) {
@@ -77,6 +83,7 @@ pub const Obj = struct {
                 ObjFunction => .function,
                 ObjNative => .native,
                 ObjClosure => .closure,
+                ObjUpvalue => .upvalue,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -87,6 +94,7 @@ pub const Obj = struct {
                 .function => ObjFunction,
                 .native => ObjNative,
                 .closure => ObjClosure,
+                .upvalue => ObjUpvalue,
             };
         }
     };
@@ -210,25 +218,60 @@ pub const ObjNative = struct {
 pub const ObjClosure = struct {
     obj: Obj,
     func: *ObjFunction,
+    upvalues: []*ObjUpvalue,
 
     pub fn alloc(func: *ObjFunction, alctr: std.mem.Allocator) *ObjClosure {
         var obj_c = alctr.create(ObjClosure) catch @panic("OOM");
-        obj_c.init_in_place(func);
+        obj_c.init_in_place(func, alctr);
         return obj_c;
     }
 
-    fn init_in_place(oc: *ObjClosure, func: *ObjFunction) void {
+    fn init_in_place(oc: *ObjClosure, func: *ObjFunction, alctr: std.mem.Allocator) void {
         oc.* = .{
             .obj = undefined,
             .func = func,
+            .upvalues = alctr.alloc(*ObjUpvalue, func.upvalue_count) catch @panic("OOM"),
         };
+
+        // book nulls all the upvalue pointers here to protect from gc... i'm going to see
+        // if i can try to avoid that in order to avoid making the pointers optional
 
         oc.obj.init_in_place(Obj.Type.tag(ObjClosure));
     }
 
     pub fn deinit(oc: *ObjClosure, alctr: std.mem.Allocator) void {
+        // ObjClosure doesn't own the *pointed to* ObjUpvalues, but we need to clear the
+        // list of pointers
+        alctr.free(oc.upvalues);
+    }
+};
+
+pub const ObjUpvalue = struct {
+    obj: Obj,
+    location: *Value,
+    closed: Value,
+    next: ?*ObjUpvalue,
+
+    pub fn alloc(val: *Value, next: ?*ObjUpvalue, alctr: std.mem.Allocator) *ObjUpvalue {
+        var obj_up = alctr.create(ObjUpvalue) catch @panic("OOM");
+        obj_up.init_in_place(val, next);
+        return obj_up;
+    }
+
+    fn init_in_place(ouv: *ObjUpvalue, val: *Value, next: ?*ObjUpvalue) void {
+        ouv.* = .{
+            .obj = undefined,
+            .location = val,
+            .closed = Value{ .nil = {} },
+            .next = next,
+        };
+
+        ouv.obj.init_in_place(Obj.Type.tag(ObjUpvalue));
+    }
+
+    pub fn deinit(ouv: *ObjUpvalue, alctr: std.mem.Allocator) void {
         _ = alctr;
-        _ = oc;
+        _ = ouv;
         // nothing to do
     }
 };

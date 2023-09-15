@@ -94,6 +94,7 @@ pub const Disassembler = struct {
             .less,
             .greater,
             .pop,
+            .close_upvalue,
             => return simple_inst(opcode, offset, vm, out),
 
             .define_global,
@@ -200,6 +201,9 @@ pub const Disassembler = struct {
                         } else {
                             return std.fmt.bufPrint(buf, "<{s}>.", .{name[0..13]}) catch unreachable;
                         }
+                    },
+                    .upvalue => {
+                        return std.fmt.bufPrint(buf, "{{upvalue}}", .{}) catch unreachable;
                     },
                 }
             },

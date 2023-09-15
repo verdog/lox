@@ -19,17 +19,20 @@ const stack_max = frames_max * std.math.maxInt(u8) + 1;
 
 source: []const u8 = undefined,
 stack: [stack_max]Value = undefined,
+// stack_top points to the next *empty* slot
 stack_top: usize = undefined,
 frames: [frames_max]CallFrame = undefined,
 frames_count: usize = undefined,
-pool: vl.ObjPool = undefined,
+pool: vl.ObjPool,
+open_upvalues: ?*ObjUpvalue,
 
-start_time: i64 = undefined,
+start_time: i64,
 
 pub fn init(alctr: std.mem.Allocator) VM {
     var result = VM{
         .pool = vl.ObjPool.init(alctr),
         .start_time = std.time.milliTimestamp(),
+        .open_upvalues = null,
     };
 
     return result;
@@ -82,6 +85,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
         switch (inst) {
             .@"return" => {
                 const result = vm.stack_pop();
+                vm.close_upvalues(frame.slots.ptr);
                 vm.frames_count -= 1;
                 if (vm.frames_count == 0) {
                     // return from script
@@ -94,8 +98,12 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 frame = &vm.frames[vm.frames_count - 1];
             },
             .print => {
+                const make_blue = "\x1b[94m";
+                const make_bold = "\x1b[1m";
+                const reset_color = "\x1b[0m";
+                out.print("{s}{s}", .{ make_bold, make_blue }) catch unreachable;
                 vm.stack_pop().print(out);
-                out.print("\n", .{}) catch unreachable;
+                out.print("{s}\n", .{reset_color}) catch unreachable;
             },
             .constant => {
                 const constant = vm.read_constant();
@@ -200,8 +208,14 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 const slot = vm.read_byte();
                 frame.slots[slot] = vm.stack_peek(0);
             },
-            .get_upvalue => unreachable,
-            .set_upvalue => unreachable,
+            .get_upvalue => {
+                const slot = vm.read_byte();
+                vm.stack_push(frame.closure.upvalues[slot].location.*);
+            },
+            .set_upvalue => {
+                const slot = vm.read_byte();
+                frame.closure.upvalues[slot].location.* = vm.stack_peek(0);
+            },
             .jump => {
                 const offset = vm.read_short();
                 frame.ip += offset;
@@ -223,11 +237,69 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
             },
             .closure => {
                 const func = vm.read_constant().as(ObjFunction);
-                const closure = vm.pool.add(ObjClosure, .{func});
-                vm.stack_push(closure);
+                const closure = vm.pool.add(ObjClosure, .{func}).as(ObjClosure);
+                const closure_val = Value.from(ObjClosure, closure);
+                vm.stack_push(closure_val);
+
+                // this list is full of undefined memory right now, be careful! also, *uv
+                // is a pointer to a pointer.
+                for (closure.upvalues) |*uv| {
+                    const is_local = vm.read_byte() != 0;
+                    const index = vm.read_byte();
+
+                    if (is_local) {
+                        uv.* = vm.capture_upvalue(&frame.slots[index]);
+                    } else {
+                        uv.* = frame.closure.upvalues[index];
+                    }
+                }
+            },
+            .close_upvalue => {
+                vm.close_upvalues(@ptrCast(&vm.stack[vm.stack_top - 1]));
+                _ = vm.stack_pop();
             },
             _ => return Error.runtime_error, // unknown opcode
         }
+    }
+}
+
+fn capture_upvalue(vm: *VM, val: *Value) *ObjUpvalue {
+    var prev: ?*ObjUpvalue = null;
+    var curr: ?*ObjUpvalue = vm.open_upvalues;
+
+    // since we close upvalues when we go out of scope, the open upvalues list will only
+    // contain local variables from a single function. the variables are stored in a
+    // contiguous array, and we keep the open upvalues list sorted based on stack index,
+    // so we can get away with some short circuiting tricks by comparing the addresses of
+    // the operands.
+
+    while (curr != null and @intFromPtr(curr.?.location) > @intFromPtr(val)) : (curr = curr.?.next) {
+        prev = curr;
+    }
+
+    if (curr != null and curr.?.location == val) {
+        return curr.?;
+    }
+
+    const value = vm.pool.add(ObjUpvalue, .{ val, curr });
+    const uv = value.as(ObjUpvalue);
+    if (prev) |p| {
+        p.next = uv;
+    } else {
+        vm.open_upvalues = uv;
+    }
+
+    return uv;
+}
+
+fn close_upvalues(vm: *VM, above_this_one: [*]Value) void {
+    while (vm.open_upvalues != null and
+        @intFromPtr(vm.open_upvalues.?.location) >= @intFromPtr(above_this_one))
+    {
+        var uv = vm.open_upvalues.?;
+        uv.closed = uv.location.*;
+        uv.location = &uv.closed;
+        vm.open_upvalues = uv.next;
     }
 }
 
@@ -410,3 +482,4 @@ const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
 const ObjNative = vl.ObjNative;
 const ObjClosure = vl.ObjClosure;
+const ObjUpvalue = vl.ObjUpvalue;
