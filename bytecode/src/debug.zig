@@ -1,12 +1,12 @@
 //! debug tools
 
 pub const DebugOptions = struct {
-    trace_execution: bool = false,
-    print_code: bool = false,
-    print_color: bool = false,
+    trace_execution: bool = true,
+    print_code: bool = true,
+    print_color: bool = true,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
     stress_garbage_collection: bool = true,
-    log_garbage_collection: bool = false,
+    log_garbage_collection: bool = true,
 };
 
 pub var options = DebugOptions{};

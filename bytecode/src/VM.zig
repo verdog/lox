@@ -49,11 +49,11 @@ pub fn deinit(vm: VM) void {
     vm.gray_stack.deinit();
 }
 
-pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
+pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, outs: anytype) !void {
     vm.stack_reset();
     vm.frames_count = 0;
 
-    const top_func = try cpl.compile(source_text, &vm.pool, out);
+    const top_func = try cpl.compile(source_text, &vm.pool, outs.err);
     vm.stack_push(Value.from(vl.ObjFunction, top_func)); // keep safe from gc
 
     vm.define_natives();
@@ -64,19 +64,19 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     vm.stack_push(Value.from(ObjClosure, closure));
 
     log.debug("set up initial call frame", .{});
-    _ = vm.call(closure, 0, out);
+    _ = vm.call(closure, 0, outs);
 
     vm.source = source_text;
 
     if (dbg.options.trace_execution) {
         dbg.Disassembler.border("execution trace", usx.err);
-        out.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16} {s: <5}\n", .{ "offset", "byte", "line", "meaning", "encoded data", "stack before inst. exec." }) catch unreachable;
+        outs.err.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16} {s: <5}\n", .{ "offset", "byte", "line", "meaning", "encoded data", "stack before inst. exec." }) catch unreachable;
     }
     log.debug("start running", .{});
-    return vm.run(alctr, out);
+    return vm.run(alctr, outs);
 }
 
-fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
+fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
     var frame = &vm.frames[vm.frames_count - 1];
 
     while (true) {
@@ -106,14 +106,14 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 if (dbg.options.print_color) {
                     const make_blue = "\x1b[94m";
                     const make_bold = "\x1b[1m";
-                    out.print("{s}{s}", .{ make_bold, make_blue }) catch unreachable;
+                    outs.out.print("{s}{s}", .{ make_bold, make_blue }) catch unreachable;
                 }
-                vm.stack_pop().print(out);
+                vm.stack_pop().print(outs.out);
                 if (dbg.options.print_color) {
                     const reset_color = "\x1b[0m";
-                    out.print("{s}\n", .{reset_color}) catch unreachable;
+                    outs.out.print("{s}\n", .{reset_color}) catch unreachable;
                 } else {
-                    out.print("\n", .{}) catch unreachable;
+                    outs.out.print("\n", .{}) catch unreachable;
                 }
             },
             .constant => {
@@ -130,7 +130,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                         vm.stack_push(Value{ .number = -vm.stack_pop().number });
                     },
                     else => {
-                        vm.print_runtime_error(out, "Operand must be a number.", .{});
+                        vm.print_runtime_error(outs.err, "Operand must be a number.", .{});
                         return Error.runtime_error;
                     },
                 }
@@ -173,9 +173,9 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                     });
                 } else {
                     if (op == .add) {
-                        vm.print_runtime_error(out, "Operands must be two numbers or two strings.", .{});
+                        vm.print_runtime_error(outs.err, "Operands must be two numbers or two strings.", .{});
                     } else {
-                        vm.print_runtime_error(out, "Operands must be numbers.", .{});
+                        vm.print_runtime_error(outs.err, "Operands must be numbers.", .{});
                     }
                     return Error.runtime_error;
                 }
@@ -198,7 +198,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 if (vm.pool.globals.get(name)) |val| {
                     vm.stack_push(val);
                 } else {
-                    vm.print_runtime_error(out, "Undefined variable '{s}'.", .{name.buf});
+                    vm.print_runtime_error(outs.err, "Undefined variable '{s}'.", .{name.buf});
                     return Error.runtime_error;
                 }
             },
@@ -207,7 +207,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                 if (vm.pool.globals.set(name, vm.stack_peek(0))) {
                     const delete_result = vm.pool.globals.delete(name);
                     std.debug.assert(delete_result);
-                    vm.print_runtime_error(out, "Undefined variable '{s}'.", .{name.buf});
+                    vm.print_runtime_error(outs.err, "Undefined variable '{s}'.", .{name.buf});
                     return Error.runtime_error;
                 }
             },
@@ -241,7 +241,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
             },
             .call => {
                 const arg_count = vm.read_byte();
-                if (!vm.call_value(vm.stack_peek(arg_count), arg_count, out)) {
+                if (!vm.call_value(vm.stack_peek(arg_count), arg_count, outs)) {
                     return Error.runtime_error;
                 }
                 frame = &vm.frames[vm.frames_count - 1];
@@ -316,18 +316,18 @@ fn close_upvalues(vm: *VM, above_this_one: [*]Value) void {
     }
 }
 
-fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
+fn call_value(vm: *VM, callee: Value, arg_count: u32, outs: anytype) bool {
     switch (callee) {
         .obj => |o| {
             switch (o.otype) {
-                .closure => return vm.call(callee.as(ObjClosure), arg_count, out),
+                .closure => return vm.call(callee.as(ObjClosure), arg_count, outs),
                 // functions should always be wrapped in closures
                 .function => unreachable,
                 .native => {
                     const native = callee.as(ObjNative);
 
                     if (native.arity != arg_count) {
-                        vm.print_runtime_error(out, "Expect {d} arguments, got {d}.", .{ native.arity, arg_count });
+                        vm.print_runtime_error(outs.err, "Expect {d} arguments, got {d}.", .{ native.arity, arg_count });
                         return false;
                     }
 
@@ -344,7 +344,7 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
                         vm.stack_push(result);
                         return true;
                     } else {
-                        vm.print_runtime_error(out, "Runtime error in native function.", .{});
+                        vm.print_runtime_error(outs.err, "Runtime error in native function.", .{});
                         // print_runtime_error resets the stack
                         return false;
                     }
@@ -355,18 +355,18 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, out: anytype) bool {
         else => {}, // fall through
     }
 
-    vm.print_runtime_error(out, "Can only call functions and classes.", .{});
+    vm.print_runtime_error(outs.err, "Can only call functions and classes.", .{});
     return false;
 }
 
-fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, out: anytype) bool {
+fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, outs: anytype) bool {
     if (arg_count != callee.func.arity) {
-        vm.print_runtime_error(out, "Expected {d} arguments but got {d}.", .{ callee.func.arity, arg_count });
+        vm.print_runtime_error(outs.err, "Expected {d} arguments but got {d}.", .{ callee.func.arity, arg_count });
         return false;
     }
 
     if (vm.frames_count == VM.frames_max) {
-        vm.print_runtime_error(out, "Stack overflow.", .{});
+        vm.print_runtime_error(outs.err, "Stack overflow.", .{});
         return false;
     }
 

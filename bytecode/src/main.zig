@@ -4,10 +4,10 @@ pub const std_options = struct {
 
 pub fn main() !u8 {
     defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
-    defer ux.stdout_buffer.flush() catch {};
+    defer usx.stdout_buffer.flush() catch {};
 
     if (std.os.argv.len > 2) {
-        try ux.out.print("Usage: {s} <script>\n", .{std.os.argv[0]});
+        try usx.out.print("Usage: {s} <script>\n", .{std.os.argv[0]});
         log.err("invalid arguments {s}", .{std.os.argv});
         std.os.exit(64);
     } else if (std.os.argv.len == 2) {
@@ -49,15 +49,17 @@ fn run_file(path: []const u8) !void {
     defer heap.free(bytes);
 
     if (dbg.options.print_code) {
-        dbg.Disassembler.border(path, ux.out);
-        ux.out.print("{s}\n", .{bytes}) catch unreachable;
+        dbg.Disassembler.border(path, usx.err);
+        usx.err.print("{s}\n", .{bytes}) catch unreachable;
     }
 
     var vm: VM = undefined;
     vm.init_in_place(heap);
     defer vm.deinit();
 
-    try vm.interpret(bytes, heap, ux.out);
+    const outs = .{ .out = usx.out, .err = usx.err };
+
+    try vm.interpret(bytes, heap, outs);
 }
 
 fn run_prompt() !void {
@@ -67,16 +69,18 @@ fn run_prompt() !void {
     vm.init_in_place(heap);
     defer vm.deinit();
 
+    const outs = .{ .out = usx.out, .err = usx.err };
+
     while (true) {
-        try ux.out.print("> ", .{});
-        try ux.stdout_buffer.flush();
-        const maybe_line = try ux.in.readUntilDelimiterOrEof(&input_buffer, '\n');
+        try usx.out.print("> ", .{});
+        try usx.stdout_buffer.flush();
+        const maybe_line = try usx.in.readUntilDelimiterOrEof(&input_buffer, '\n');
         if (maybe_line) |line| {
-            vm.interpret(line, heap, ux.out) catch |e| switch (e) {
-                VM.Error.compile_error => try ux.out.print("Compile error\n", .{}),
-                VM.Error.runtime_error => try ux.out.print("Runtime error\n", .{}),
+            vm.interpret(line, heap, outs) catch |e| switch (e) {
+                VM.Error.compile_error => try usx.out.print("Compile error\n", .{}),
+                VM.Error.runtime_error => try usx.out.print("Runtime error\n", .{}),
             };
-            ux.stdout_buffer.flush() catch {};
+            usx.stdout_buffer.flush() catch {};
         } else {
             break;
         }
@@ -99,5 +103,5 @@ const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const VM = @import("VM.zig");
 
-const ux = @import("ux.zig");
+const usx = @import("ux.zig");
 const dbg = @import("debug.zig");

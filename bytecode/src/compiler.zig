@@ -977,7 +977,7 @@ fn Parser(comptime Context: type) type {
 
             var result = inner.end(p.previous.line);
             if (!p.had_error) {
-                inner.print(p.scanner.source, p.ctx.out);
+                inner.print(p.scanner.source, p.ctx.err);
             }
             p.compiler = inner.enclosing.?;
 
@@ -1136,7 +1136,7 @@ pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype
     var outer_f = pool.add(val.ObjFunction, .{ undefined, .script }).as(val.ObjFunction);
     var comp = Compiler.init(outer_f, null);
 
-    const ctx = .{ .out = usx.err };
+    const ctx = .{ .out = usx.out, .err = usx.err };
     var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
     pool.compiler_ref = &p.compiler;
 
