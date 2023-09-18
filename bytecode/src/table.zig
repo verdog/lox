@@ -96,10 +96,21 @@ pub const Table = struct {
         }
     }
 
-    pub fn add_all(t: Table, to: *Table) void {
-        for (t.entries.items) |e| {
+    // pub fn add_all(t: Table, to: *Table) void {
+    //     for (t.entries.items) |e| {
+    //         if (e.key) |k| {
+    //             to.set(k, e.value);
+    //         }
+    //     }
+    // }
+
+    pub fn remove_white(t: *Table) void {
+        for (t.entries) |e| {
             if (e.key) |k| {
-                to.set(k, e.value);
+                if (!k.obj.is_marked) {
+                    log.debug(" gc remove white {s} 0x{x}", .{ k.buf, @intFromPtr(&k.obj) });
+                    _ = t.delete(k);
+                }
             }
         }
     }
@@ -133,6 +144,7 @@ pub const Table = struct {
     }
 
     fn adjust_capacity(t: *Table, new_cap: usize) void {
+        log.debug("adjust capacity", .{});
         var new_entries = t.alctr.alloc(Entry, new_cap) catch @panic("OOM");
         for (new_entries) |*e| {
             e.key = null;
@@ -169,3 +181,4 @@ pub fn hash(text: []const u8) u32 {
 const std = @import("std");
 
 const vl = @import("value.zig");
+const log = std.log.scoped(.table);

@@ -5,6 +5,8 @@ pub const DebugOptions = struct {
     print_code: bool = false,
     print_color: bool = false,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
+    stress_garbage_collection: bool = true,
+    log_garbage_collection: bool = false,
 };
 
 pub var options = DebugOptions{};
@@ -183,7 +185,7 @@ pub const Disassembler = struct {
                         }
                     },
                     .function => {
-                        const name = val.as(ObjFunction).name.buf;
+                        const name = val.as(ObjFunction).name.?.buf;
                         const spaces = " " ** 64;
                         if (name.len <= 14) {
                             return std.fmt.bufPrint(buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
@@ -195,7 +197,7 @@ pub const Disassembler = struct {
                         return std.fmt.bufPrint(buf, "<native fn>", .{}) catch unreachable;
                     },
                     .closure => {
-                        const name = val.as(ObjClosure).func.name.buf;
+                        const name = val.as(ObjClosure).func.name.?.buf;
                         const spaces = " " ** 64;
                         if (name.len <= 14) {
                             return std.fmt.bufPrint(buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;

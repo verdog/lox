@@ -236,7 +236,7 @@ const Upvalue = struct {
     is_local: bool,
 };
 
-const Compiler = struct {
+pub const Compiler = struct {
     function: *val.ObjFunction,
     locals: [locals_capacity]Local,
     locals_count: i16,
@@ -294,7 +294,7 @@ const Compiler = struct {
                 }
             }
 
-            const name = if (comp.function.ftype == .script) "<script>" else comp.function.name.buf;
+            const name = if (comp.function.ftype == .script) "<script>" else comp.function.name.?.buf;
             dbg.Disassembler.chunk(comp.function.chunk, name, source, out);
         }
     }
@@ -942,11 +942,19 @@ fn Parser(comptime Context: type) type {
         }
 
         fn function(p: *P, ftype: val.ObjFunction.Type) void {
-            const fname = p.pool.make_string_value(p.previous.lexeme).as(val.ObjString);
-            const f = p.pool.add(val.ObjFunction, .{ fname, ftype }).as(val.ObjFunction);
+            // we need to create the ObjFunction first, then the name string. if we create
+            // the name string first, the pool.add call to create the ObjFunction might
+            // trigger gc, which would delete the name string out from under us, since
+            // it's not attached to anything.
+            const f = p.pool.add(val.ObjFunction, .{ null, ftype }).as(val.ObjFunction);
             var inner = Compiler.init(f, p.compiler);
-            p.compiler = &inner;
-            // no need to close this scope since we toss the whole compiler at the end
+            p.compiler = &inner; // function now safe from gc
+
+            // name the function
+            const fname = p.pool.make_string_value(p.previous.lexeme).as(val.ObjString);
+            inner.function.name = fname;
+
+            // no need to close this scope later since we toss the whole compiler at the end
             p.begin_scope();
 
             p.consume(.lparen, "Expect '(' after function name.");
@@ -1122,12 +1130,15 @@ fn Parser(comptime Context: type) type {
 }
 
 pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype) !*val.ObjFunction {
+    log.debug("begin compile", .{});
+
     var s = Scanner.init(source_text);
     var outer_f = pool.add(val.ObjFunction, .{ undefined, .script }).as(val.ObjFunction);
     var comp = Compiler.init(outer_f, null);
 
     const ctx = .{ .out = usx.err };
     var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
+    pool.compiler_ref = &p.compiler;
 
     p.advance();
     while (!p.match(.eof)) {
@@ -1140,6 +1151,9 @@ pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype
         comp.print(source_text, err_printer);
     }
 
+    pool.compiler_ref = null;
+
+    log.debug("end compile", .{});
     if (p.had_error) return error.compile_error;
     return func;
 }

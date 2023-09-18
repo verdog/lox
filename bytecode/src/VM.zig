@@ -10,6 +10,7 @@ pub const Error = error{
 const CallFrame = struct {
     closure: *vl.ObjClosure,
     ip: usize,
+    // window into vm.stack
     slots: []vl.Value,
 };
 
@@ -25,49 +26,53 @@ frames: [frames_max]CallFrame = undefined,
 frames_count: usize = undefined,
 pool: vl.ObjPool,
 open_upvalues: ?*ObjUpvalue,
+gray_stack: std.ArrayList(*Obj),
 
 start_time: i64,
 
-pub fn init(alctr: std.mem.Allocator) VM {
-    var result = VM{
-        .pool = vl.ObjPool.init(alctr),
+pub fn init_in_place(vm: *VM, alctr: std.mem.Allocator) void {
+    vm.* = .{
+        .pool = vl.ObjPool.init(alctr, vm),
         .start_time = std.time.milliTimestamp(),
         .open_upvalues = null,
+        .gray_stack = @TypeOf(vm.gray_stack).init(alctr),
     };
-
-    return result;
 }
 
 fn define_natives(vm: *VM) void {
+    log.debug("define natives", .{});
     vm.define_native("clock", nat.clock, 0);
 }
 
 pub fn deinit(vm: VM) void {
     vm.pool.deinit();
+    vm.gray_stack.deinit();
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out: anytype) !void {
-    const top_func = try cpl.compile(source_text, &vm.pool, out);
-
     vm.stack_reset();
+    vm.frames_count = 0;
+
+    const top_func = try cpl.compile(source_text, &vm.pool, out);
+    vm.stack_push(Value.from(vl.ObjFunction, top_func)); // keep safe from gc
+
     vm.define_natives();
 
-    // wrap in closure
-    vm.stack_push(Value.from(vl.ObjFunction, top_func)); // keep safe from gc
+    log.debug("wrap initial func in closure", .{});
     const closure = vm.pool.add(ObjClosure, .{top_func}).as(ObjClosure);
-    _ = vm.stack_pop();
+    _ = vm.stack_pop(); // top_func
     vm.stack_push(Value.from(ObjClosure, closure));
 
-    // initial call frame
-    vm.frames_count = 0;
+    log.debug("set up initial call frame", .{});
     _ = vm.call(closure, 0, out);
 
     vm.source = source_text;
 
     if (dbg.options.trace_execution) {
-        dbg.Disassembler.border("execution trace", out);
+        dbg.Disassembler.border("execution trace", usx.err);
         out.print("{s: <7}{s: <5}{s: <5}{s: <16} {s: <16} {s: <5}\n", .{ "offset", "byte", "line", "meaning", "encoded data", "stack before inst. exec." }) catch unreachable;
     }
+    log.debug("start running", .{});
     return vm.run(alctr, out);
 }
 
@@ -76,9 +81,9 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
 
     while (true) {
         if (dbg.options.trace_execution) {
-            dbg.Disassembler.line(frame.closure.func.chunk, frame.ip, vm.source, out);
+            dbg.Disassembler.line(frame.closure.func.chunk, frame.ip, vm.source, usx.err);
             // trace instruction
-            _ = dbg.Disassembler.instruction(frame.closure.func.chunk, frame.ip, vm, out);
+            _ = dbg.Disassembler.instruction(frame.closure.func.chunk, frame.ip, vm, usx.err);
         }
         const inst = @as(OpCode, @enumFromInt(vm.read_byte()));
 
@@ -258,6 +263,8 @@ fn run(vm: *VM, alctr: std.mem.Allocator, out: anytype) !void {
                     } else {
                         uv.* = frame.closure.upvalues[index];
                     }
+
+                    closure.upvalues_initd += 1;
                 }
             },
             .close_upvalue => {
@@ -396,6 +403,7 @@ fn read_constant(vm: *VM) Value {
 }
 
 fn stack_reset(vm: *VM) void {
+    log.debug("stack reset", .{});
     vm.stack_top = 0;
 }
 
@@ -421,16 +429,14 @@ fn track_obj(vm: *VM, obj: *vl.Obj) void {
 
 fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn, arity: u8) void {
     const name_val = vm.pool.make_string_value(name);
-    const native_val = vm.pool.add(ObjNative, .{ f, arity });
-
-    // push and pop to protect from evil garbage collector
-
+    // push to protect from gc
     vm.stack_push(name_val);
+
+    const native_val = vm.pool.add(ObjNative, .{ f, arity });
+    // push to protect from gc
     vm.stack_push(native_val);
 
-    // assumed that this function is run before anything is put onto the stack
-    std.debug.assert(vm.stack_top == 2);
-    const is_new = vm.pool.globals.set(vm.stack[0].as(ObjString), vm.stack[1]);
+    const is_new = vm.pool.globals.set(vm.stack_peek(1).as(ObjString), vm.stack_peek(0));
     std.debug.assert(is_new);
 
     _ = vm.stack_pop();
@@ -458,7 +464,7 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
             if (func.ftype == .script) {
                 usx.err.print("script\n", .{}) catch unreachable;
             } else {
-                usx.err.print("{s}()\n", .{func.name.buf}) catch unreachable;
+                usx.err.print("{s}()\n", .{func.name.?.buf}) catch unreachable;
             }
 
             if (i == 0) break; // last frame, decrement would underflow
@@ -490,6 +496,8 @@ const usx = @import("ux.zig");
 const Chunk = @import("chunk.zig").Chunk;
 const OpCode = @import("chunk.zig").OpCode;
 const Value = vl.Value;
+
+const Obj = vl.Obj;
 const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
 const ObjNative = vl.ObjNative;

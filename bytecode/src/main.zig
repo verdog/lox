@@ -3,7 +3,7 @@ pub const std_options = struct {
 };
 
 pub fn main() !u8 {
-    // defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
+    defer if (!gpa.detectLeaks()) log.debug("no leaks", .{});
     defer ux.stdout_buffer.flush() catch {};
 
     if (std.os.argv.len > 2) {
@@ -53,7 +53,8 @@ fn run_file(path: []const u8) !void {
         ux.out.print("{s}\n", .{bytes}) catch unreachable;
     }
 
-    var vm = VM.init(heap);
+    var vm: VM = undefined;
+    vm.init_in_place(heap);
     defer vm.deinit();
 
     try vm.interpret(bytes, heap, ux.out);
@@ -62,7 +63,8 @@ fn run_file(path: []const u8) !void {
 fn run_prompt() !void {
     var input_buffer = [_]u8{'\x00'} ** 1024;
 
-    var vm = VM.init(heap);
+    var vm: VM = undefined;
+    vm.init_in_place(heap);
     defer vm.deinit();
 
     while (true) {

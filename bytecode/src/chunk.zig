@@ -67,11 +67,17 @@ pub const Chunk = struct {
         if (c.constants.items.len == std.math.maxInt(u8) + 1) {
             return error.too_many_constants;
         }
+        {
+            var buf: [256]u8 = undefined;
+            var str = val.buf_print(&buf);
+            log.debug("add constant {s}", .{str});
+        }
         c.constants.append(val) catch @panic("OOM");
         return @intCast(c.constants.items.len - 1);
     }
 };
 
 const std = @import("std");
+const log = std.log.scoped(.chunk);
 
 const value = @import("value.zig");
