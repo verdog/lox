@@ -1129,15 +1129,14 @@ fn Parser(comptime Context: type) type {
     };
 }
 
-pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype) !*val.ObjFunction {
+pub fn compile(source_text: []const u8, pool: *val.ObjPool, outs: anytype) !*val.ObjFunction {
     log.debug("begin compile", .{});
 
     var s = Scanner.init(source_text);
     var outer_f = pool.add(val.ObjFunction, .{ undefined, .script }).as(val.ObjFunction);
     var comp = Compiler.init(outer_f, null);
 
-    const ctx = .{ .out = usx.out, .err = usx.err };
-    var p = Parser(@TypeOf(ctx)).init(s, &comp, pool, ctx);
+    var p = Parser(@TypeOf(outs)).init(s, &comp, pool, outs);
     pool.compiler_ref = &p.compiler;
 
     p.advance();
@@ -1148,7 +1147,7 @@ pub fn compile(source_text: []const u8, pool: *val.ObjPool, err_printer: anytype
     const func = comp.end(p.previous.line);
 
     if (!p.had_error) {
-        comp.print(source_text, err_printer);
+        comp.print(source_text, outs.err);
     }
 
     pool.compiler_ref = null;

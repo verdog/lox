@@ -89,6 +89,7 @@ fn run_prompt() !void {
 
 test "run all tests" {
     std.testing.refAllDeclsRecursive(@This());
+    _ = @import("test.zig");
 }
 
 const std = @import("std");

@@ -9,7 +9,17 @@ pub const DebugOptions = struct {
     log_garbage_collection: bool = true,
 };
 
-pub var options = DebugOptions{};
+pub var options = switch (@import("builtin").is_test) {
+    false => DebugOptions{},
+    true => DebugOptions{
+        .trace_execution = false,
+        .print_code = false,
+        .print_color = false,
+        .dump_stack_on_runtime_error = false,
+        .stress_garbage_collection = true,
+        .log_garbage_collection = false,
+    },
+};
 
 pub const Disassembler = struct {
     const border_len = @as(usize, 80);

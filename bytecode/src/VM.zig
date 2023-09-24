@@ -53,7 +53,7 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
     vm.stack_reset();
     vm.frames_count = 0;
 
-    const top_func = try cpl.compile(source_text, &vm.pool, outs.err);
+    const top_func = try cpl.compile(source_text, &vm.pool, outs);
     vm.stack_push(Value.from(vl.ObjFunction, top_func)); // keep safe from gc
 
     vm.define_natives();
@@ -444,13 +444,8 @@ fn define_native(vm: *VM, name: []const u8, f: ObjNative.Fn, arity: u8) void {
 }
 
 fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: anytype) void {
-    usx.err.print(fmt, vars) catch unreachable;
-    usx.err.print("\n", .{}) catch unreachable;
-
-    // XXX: refactor this to either not take the argument (which is currently stdout, and
-    // should be stderr) and always use stderr, or implement an output and error stream in
-    // the vm.
-    _ = out;
+    out.print(fmt, vars) catch unreachable;
+    out.print("\n", .{}) catch unreachable;
 
     {
         var i = vm.frames_count - 1;
@@ -460,11 +455,11 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
             const instruction = frame.ip - 1;
             const line = frame.closure.func.chunk.lines.items[instruction];
 
-            usx.err.print("[line {d}] in ", .{line}) catch unreachable;
+            out.print("[line {d}] in ", .{line}) catch unreachable;
             if (func.ftype == .script) {
-                usx.err.print("script\n", .{}) catch unreachable;
+                out.print("script\n", .{}) catch unreachable;
             } else {
-                usx.err.print("{s}()\n", .{func.name.?.buf}) catch unreachable;
+                out.print("{s}()\n", .{func.name.?.buf}) catch unreachable;
             }
 
             if (i == 0) break; // last frame, decrement would underflow
@@ -472,11 +467,11 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
     }
 
     if (dbg.options.dump_stack_on_runtime_error) {
-        usx.err.print("Stack, starting at bottom:\n", .{}) catch unreachable;
+        out.print("Stack, starting at bottom:\n", .{}) catch unreachable;
         var i = @as(usize, 0);
         while (i < vm.stack_top) : (i += 1) {
-            vm.stack[i].print(usx.err);
-            usx.err.print("\n", .{}) catch unreachable;
+            vm.stack[i].print(out);
+            out.print("\n", .{}) catch unreachable;
         }
     }
 
