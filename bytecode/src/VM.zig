@@ -353,6 +353,12 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, outs: anytype) bool {
                         return false;
                     }
                 },
+                .class => {
+                    const class = callee.as(ObjClass);
+                    const instance = vm.pool.add(ObjInstance, .{class});
+                    vm.stack[vm.stack_top - arg_count - 1] = instance;
+                    return true;
+                },
                 else => {}, // fall through
             }
         },
@@ -503,3 +509,4 @@ const ObjNative = vl.ObjNative;
 const ObjClosure = vl.ObjClosure;
 const ObjUpvalue = vl.ObjUpvalue;
 const ObjClass = vl.ObjClass;
+const ObjInstance = vl.ObjInstance;

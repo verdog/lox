@@ -76,6 +76,9 @@ pub const Value = union(enum) {
                     .class => {
                         out.print("{s}", .{val.as(ObjClass).name.buf}) catch unreachable;
                     },
+                    .instance => {
+                        out.print("{s} instance", .{val.as(ObjInstance).class.name.buf}) catch unreachable;
+                    },
                 }
             },
         }
@@ -90,6 +93,9 @@ pub const Obj = struct {
         closure,
         upvalue,
         class,
+        instance,
+
+        // TODO: improve these functions to only look at one list of pairs
 
         pub fn tag(comptime T: type) Type {
             return switch (T) {
@@ -99,6 +105,7 @@ pub const Obj = struct {
                 ObjClosure => .closure,
                 ObjUpvalue => .upvalue,
                 ObjClass => .class,
+                ObjInstance => .instance,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -111,6 +118,7 @@ pub const Obj = struct {
                 .closure => ObjClosure,
                 .upvalue => ObjUpvalue,
                 .class => ObjClass,
+                .instance => ObjInstance,
             };
         }
     };
@@ -331,6 +339,34 @@ pub const ObjClass = struct {
     }
 };
 
+pub const ObjInstance = struct {
+    obj: Obj,
+    class: *ObjClass,
+    fields: tbl.Table,
+
+    pub fn alloc(class: *ObjClass, alctr: std.mem.Allocator) *ObjInstance {
+        var obj_i = alctr.create(ObjInstance) catch @panic("OOM");
+        var fields = tbl.Table.init(alctr);
+        obj_i.init_in_place(class, fields);
+        return obj_i;
+    }
+
+    fn init_in_place(oi: *ObjInstance, class: *ObjClass, fields: tbl.Table) void {
+        oi.* = .{
+            .obj = undefined,
+            .class = class,
+            .fields = fields,
+        };
+
+        oi.obj.init_in_place(Obj.Type.tag(ObjInstance));
+    }
+
+    pub fn deinit(oi: *ObjInstance, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        oi.fields.deinit();
+    }
+};
+
 pub const ObjPool = struct {
     alctr: std.mem.Allocator,
     cached_strings: tbl.Table,
@@ -457,17 +493,20 @@ pub const ObjPool = struct {
     }
 
     fn mark_roots(pl: *ObjPool) void {
-        log.debug(" gc mark stack roots", .{});
+        if (dbg.options.log_garbage_collection)
+            log.debug(" gc mark stack roots", .{});
         for (0..pl.vm.stack_top) |i| {
             pl.mark_value(pl.vm.stack[i]);
         }
 
-        log.debug(" gc mark closures", .{});
+        if (dbg.options.log_garbage_collection)
+            log.debug(" gc mark closures", .{});
         for (0..pl.vm.frames_count) |i| {
             pl.mark_obj(&pl.vm.frames[i].closure.obj);
         }
 
-        log.debug(" gc mark open upvalues", .{});
+        if (dbg.options.log_garbage_collection)
+            log.debug(" gc mark open upvalues", .{});
         {
             var m_uv = pl.vm.open_upvalues;
             while (m_uv) |uv| : (m_uv = uv.next) {
@@ -475,10 +514,12 @@ pub const ObjPool = struct {
             }
         }
 
-        log.debug(" gc mark globals", .{});
+        if (dbg.options.log_garbage_collection)
+            log.debug(" gc mark globals", .{});
         pl.mark_table(&pl.globals);
 
-        log.debug(" gc mark internal roots", .{});
+        if (dbg.options.log_garbage_collection)
+            log.debug(" gc mark internal roots", .{});
         pl.mark_compiler_roots();
     }
 
@@ -533,7 +574,8 @@ pub const ObjPool = struct {
         if (dbg.options.log_garbage_collection) {
             var buf: [256]u8 = undefined;
             var str = (Value{ .obj = obj }).buf_print(&buf);
-            log.debug(" gc blacken 0x{x} {s} {s} {}", .{ @intFromPtr(obj), @tagName(obj.otype), str, obj.is_marked });
+            if (dbg.options.log_garbage_collection)
+                log.debug(" gc blacken 0x{x} {s} {s} {}", .{ @intFromPtr(obj), @tagName(obj.otype), str, obj.is_marked });
         }
 
         switch (obj.otype) {
@@ -548,17 +590,20 @@ pub const ObjPool = struct {
             .function => {
                 var func = obj.as(ObjFunction);
                 if (func.ftype == .function) {
-                    log.debug(" gc blacken function name...", .{});
+                    if (dbg.options.log_garbage_collection)
+                        log.debug(" gc blacken function name...", .{});
                     // we might be collecting garbage in the tiny window between function
                     // creation time and function naming, so it's okay for the name to be
                     // null here
                     if (func.name) |n| {
                         pl.mark_obj(&n.obj);
                     } else {
-                        log.debug(" (no name)", .{});
+                        if (dbg.options.log_garbage_collection)
+                            log.debug(" (no name)", .{});
                     }
                 }
-                log.debug(" gc blacken function constants...", .{});
+                if (dbg.options.log_garbage_collection)
+                    log.debug(" gc blacken function constants...", .{});
                 pl.mark_array(func.chunk.constants.items);
             },
 
@@ -573,6 +618,11 @@ pub const ObjPool = struct {
 
             .class => {
                 pl.mark_obj(&obj.as(ObjClass).name.obj);
+            },
+
+            .instance => {
+                pl.mark_obj(&obj.as(ObjInstance).class.obj);
+                pl.mark_table(&obj.as(ObjInstance).fields);
             },
         }
     }

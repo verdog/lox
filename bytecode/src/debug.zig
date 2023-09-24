@@ -6,7 +6,7 @@ pub const DebugOptions = struct {
     print_color: bool = true,
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
     stress_garbage_collection: bool = true,
-    log_garbage_collection: bool = true,
+    log_garbage_collection: bool = false,
 };
 
 pub var options = switch (@import("builtin").is_test) {
@@ -228,6 +228,15 @@ pub const Disassembler = struct {
                             return std.fmt.bufPrint(buf, "\"{s}\".", .{strbuf[0..13]}) catch unreachable;
                         }
                     },
+                    .instance => {
+                        const strbuf = val.as(ObjInstance).class.name.buf;
+                        const spaces = " " ** 64;
+                        if (strbuf.len <= 12) {
+                            return std.fmt.bufPrint(buf, "i:\"{s}\"{s}", .{ strbuf, spaces[0..(12 - strbuf.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "i:\"{s}\".", .{strbuf[0..11]}) catch unreachable;
+                        }
+                    },
                 }
             },
         }
@@ -281,3 +290,4 @@ const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
 const ObjClosure = vl.ObjClosure;
 const ObjClass = vl.ObjClass;
+const ObjInstance = vl.ObjInstance;

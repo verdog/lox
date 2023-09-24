@@ -29,6 +29,8 @@ pub const Table = struct {
 
     pub fn deinit(t: Table) void {
         t.alctr.free(t.entries);
+        // gc will free individual entries
+
         // book has table reset here? might need a different reset operation later
         // t.count = 0;
         // t.entries = undefined;

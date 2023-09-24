@@ -568,9 +568,9 @@ test "./print/missing_argument.lox" {
 //     try run_test(@embedFile("./test/this/nested_class.lox"));
 // }
 
-// test "./constructor/default.lox" {
-//     try run_test(@embedFile("./test/constructor/default.lox"));
-// }
+test "./constructor/default.lox" {
+    try run_test(@embedFile("./test/constructor/default.lox"));
+}
 
 // test "./constructor/default_arguments.lox" {
 //     try run_test(@embedFile("./test/constructor/default_arguments.lox"));
