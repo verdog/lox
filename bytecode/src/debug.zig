@@ -114,6 +114,7 @@ pub const Disassembler = struct {
             .get_global,
             .set_global,
             .constant,
+            .class,
             => return constant_inst(opcode, ch, offset, vm, out),
 
             .get_local,
@@ -218,6 +219,15 @@ pub const Disassembler = struct {
                     .upvalue => {
                         return std.fmt.bufPrint(buf, "{{upvalue}}", .{}) catch unreachable;
                     },
+                    .class => {
+                        const strbuf = val.as(ObjClass).name.buf;
+                        const spaces = " " ** 64;
+                        if (strbuf.len <= 14) {
+                            return std.fmt.bufPrint(buf, "\"{s}\"{s}", .{ strbuf, spaces[0..(14 - strbuf.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "\"{s}\".", .{strbuf[0..13]}) catch unreachable;
+                        }
+                    },
                 }
             },
         }
@@ -270,3 +280,4 @@ const Value = vl.Value;
 const ObjString = vl.ObjString;
 const ObjFunction = vl.ObjFunction;
 const ObjClosure = vl.ObjClosure;
+const ObjClass = vl.ObjClass;

@@ -552,7 +552,9 @@ fn Parser(comptime Context: type) type {
         }
 
         pub fn declaration(p: *P) void {
-            if (p.match(.fun)) {
+            if (p.match(.class)) {
+                p.class_declaration();
+            } else if (p.match(.fun)) {
                 p.fun_declaration();
             } else if (p.match(.@"var")) {
                 p.var_declaration();
@@ -561,6 +563,18 @@ fn Parser(comptime Context: type) type {
             }
 
             if (p.in_panic_mode) p.synchronize();
+        }
+
+        fn class_declaration(p: *P) void {
+            p.consume(.identifier, "Expect class name.");
+            const name_constant = p.identifier_constant(p.previous);
+            p.declare_variable();
+
+            p.emit_bytes(@intFromEnum(chk.OpCode.class), name_constant);
+            p.define_variable(name_constant);
+
+            p.consume(.lbrace, "Expect '{' before class body.");
+            p.consume(.rbrace, "Expect '}' after class body.");
         }
 
         fn fun_declaration(p: *P) void {

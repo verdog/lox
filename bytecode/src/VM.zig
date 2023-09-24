@@ -271,6 +271,10 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 vm.close_upvalues(@ptrCast(&vm.stack[vm.stack_top - 1]));
                 _ = vm.stack_pop();
             },
+            .class => {
+                const class = vm.pool.add(ObjClass, .{vm.read_constant().as(ObjString)});
+                vm.stack_push(class);
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
@@ -498,3 +502,4 @@ const ObjFunction = vl.ObjFunction;
 const ObjNative = vl.ObjNative;
 const ObjClosure = vl.ObjClosure;
 const ObjUpvalue = vl.ObjUpvalue;
+const ObjClass = vl.ObjClass;

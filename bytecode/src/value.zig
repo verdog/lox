@@ -73,6 +73,9 @@ pub const Value = union(enum) {
                         // should never be visible to users
                         out.print("{{upvalue {d}}}", .{@intFromPtr(val.obj)}) catch unreachable;
                     },
+                    .class => {
+                        out.print("{s}", .{val.as(ObjClass).name.buf}) catch unreachable;
+                    },
                 }
             },
         }
@@ -86,6 +89,7 @@ pub const Obj = struct {
         native,
         closure,
         upvalue,
+        class,
 
         pub fn tag(comptime T: type) Type {
             return switch (T) {
@@ -94,6 +98,7 @@ pub const Obj = struct {
                 ObjNative => .native,
                 ObjClosure => .closure,
                 ObjUpvalue => .upvalue,
+                ObjClass => .class,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -105,6 +110,7 @@ pub const Obj = struct {
                 .native => ObjNative,
                 .closure => ObjClosure,
                 .upvalue => ObjUpvalue,
+                .class => ObjClass,
             };
         }
     };
@@ -295,6 +301,32 @@ pub const ObjUpvalue = struct {
     pub fn deinit(ouv: *ObjUpvalue, alctr: std.mem.Allocator) void {
         _ = alctr;
         _ = ouv;
+        // nothing to do
+    }
+};
+
+pub const ObjClass = struct {
+    obj: Obj,
+    name: *ObjString,
+
+    pub fn alloc(name: *ObjString, alctr: std.mem.Allocator) *ObjClass {
+        var obj_cl = alctr.create(ObjClass) catch @panic("OOM");
+        obj_cl.init_in_place(name);
+        return obj_cl;
+    }
+
+    fn init_in_place(oc: *ObjClass, name: *ObjString) void {
+        oc.* = .{
+            .obj = undefined,
+            .name = name,
+        };
+
+        oc.obj.init_in_place(Obj.Type.tag(ObjClass));
+    }
+
+    pub fn deinit(oc: *ObjClass, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        _ = oc;
         // nothing to do
     }
 };
@@ -537,6 +569,10 @@ pub const ObjPool = struct {
                     var uv = closure.upvalues[i];
                     pl.mark_obj(&uv.obj);
                 }
+            },
+
+            .class => {
+                pl.mark_obj(&obj.as(ObjClass).name.obj);
             },
         }
     }

@@ -908,9 +908,9 @@ test "./assignment/global.lox" {
 //     try run_test(@embedFile("./test/class/inherited_method.lox"));
 // }
 
-// test "./class/empty.lox" {
-//     try run_test(@embedFile("./test/class/empty.lox"));
-// }
+test "./class/empty.lox" {
+    try run_test(@embedFile("./test/class/empty.lox"));
+}
 
 // test "./class/reference_self.lox" {
 //     try run_test(@embedFile("./test/class/reference_self.lox"));
