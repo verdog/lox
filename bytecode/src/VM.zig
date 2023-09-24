@@ -275,6 +275,35 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 const class = vm.pool.add(ObjClass, .{vm.read_constant().as(ObjString)});
                 vm.stack_push(class);
             },
+            .get_property => {
+                if (!vm.stack_peek(0).is(ObjInstance)) {
+                    vm.print_runtime_error(outs.err, "Only instances have properties.", .{});
+                    return Error.runtime_error;
+                }
+
+                const instance = vm.stack_peek(0).as(ObjInstance);
+                const name = vm.read_constant().as(ObjString);
+
+                if (instance.fields.get(name)) |value| {
+                    _ = vm.stack_pop(); // the instance
+                    vm.stack_push(value);
+                } else {
+                    vm.print_runtime_error(outs.err, "Undefined property '{s}'.", .{name.buf});
+                    return Error.runtime_error;
+                }
+            },
+            .set_property => {
+                if (!vm.stack_peek(1).is(ObjInstance)) {
+                    vm.print_runtime_error(outs.err, "Only instances have fields.", .{});
+                    return Error.runtime_error;
+                }
+
+                var instance = vm.stack_peek(1).as(ObjInstance);
+                _ = instance.fields.set(vm.read_constant().as(ObjString), vm.stack_peek(0));
+                const value = vm.stack_pop();
+                _ = vm.stack_pop(); // the instance
+                vm.stack_push(value);
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }

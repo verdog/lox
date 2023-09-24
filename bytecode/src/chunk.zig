@@ -31,6 +31,8 @@ pub const OpCode = enum(u8) {
     closure,
     close_upvalue,
     class,
+    get_property,
+    set_property,
     _,
 };
 

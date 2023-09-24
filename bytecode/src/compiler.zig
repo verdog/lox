@@ -463,7 +463,7 @@ fn Parser(comptime Context: type) type {
                 // .lbrace => {},
                 // .rbrace => {},
                 // .comma => {},
-                // .dot => {},
+                .dot => .{ .prefix = P.unimpl, .infix = P.dot, .precedence = .call },
                 .minus => .{ .prefix = P.unary, .infix = P.binary, .precedence = .term },
                 .plus => .{ .prefix = P.unimpl, .infix = P.binary, .precedence = .term },
                 // .semicolon => {},
@@ -786,7 +786,7 @@ fn Parser(comptime Context: type) type {
             p.emit_op(.pop);
         }
 
-        pub fn block_statement(p: *P) void {
+        fn block_statement(p: *P) void {
             while (!p.check(.rbrace) and !p.check(.eof)) {
                 p.declaration();
             }
@@ -813,7 +813,7 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn variable(p: *P, can_assign: bool) void {
+        fn variable(p: *P, can_assign: bool) void {
             p.named_variable(p.previous, can_assign);
         }
 
@@ -868,17 +868,17 @@ fn Parser(comptime Context: type) type {
             };
         }
 
-        pub fn expression(p: *P) void {
+        fn expression(p: *P) void {
             p.parse_precedence(.assignment);
         }
 
-        pub fn number(p: *P, can_assign: bool) void {
+        fn number(p: *P, can_assign: bool) void {
             _ = can_assign;
             const value: val.Value = .{ .number = std.fmt.parseFloat(f64, p.previous.lexeme) catch unreachable };
             p.emit_constant(value);
         }
 
-        pub fn literal(p: *P, can_assign: bool) void {
+        fn literal(p: *P, can_assign: bool) void {
             _ = can_assign;
             switch (p.previous.typ) {
                 .false => p.emit_byte(@intFromEnum(chk.OpCode.false)),
@@ -888,18 +888,18 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn string(p: *P, can_assign: bool) void {
+        fn string(p: *P, can_assign: bool) void {
             _ = can_assign;
             p.emit_constant(p.pool.make_string_value(p.previous.lexeme[1 .. p.previous.lexeme.len - 1]));
         }
 
-        pub fn grouping(p: *P, can_assign: bool) void {
+        fn grouping(p: *P, can_assign: bool) void {
             _ = can_assign;
             p.expression();
             p.consume(.rparen, "Expect ')' after expression.");
         }
 
-        pub fn unary(p: *P, can_assign: bool) void {
+        fn unary(p: *P, can_assign: bool) void {
             _ = can_assign;
             const typ = p.previous.typ;
 
@@ -914,7 +914,7 @@ fn Parser(comptime Context: type) type {
             }
         }
 
-        pub fn binary(p: *P, can_assign: bool) void {
+        fn binary(p: *P, can_assign: bool) void {
             _ = can_assign;
             const typ = p.previous.typ;
             const rule = p.get_rule(typ);
@@ -1008,6 +1008,18 @@ fn Parser(comptime Context: type) type {
             }
         }
 
+        fn dot(p: *P, can_assign: bool) void {
+            p.consume(.identifier, "Expect property name after '.'.");
+            const name_constant = p.identifier_constant(p.previous);
+
+            if (can_assign and p.match(.eql)) {
+                p.expression();
+                p.emit_bytes(@intFromEnum(chk.OpCode.set_property), name_constant);
+            } else {
+                p.emit_bytes(@intFromEnum(chk.OpCode.get_property), name_constant);
+            }
+        }
+
         fn call(p: *P, can_assign: bool) void {
             _ = can_assign;
             const arg_count = p.arg_list();
@@ -1036,7 +1048,7 @@ fn Parser(comptime Context: type) type {
             unreachable;
         }
 
-        pub fn parse_precedence(p: *P, precedence: Precedence) void {
+        fn parse_precedence(p: *P, precedence: Precedence) void {
             const can_assign = @intFromEnum(precedence) <= @intFromEnum(Precedence.assignment);
 
             {

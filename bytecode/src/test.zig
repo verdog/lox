@@ -360,9 +360,9 @@ test "./operator/divide_nonnum_num.lox" {
     try run_test(@embedFile("./test/operator/divide_nonnum_num.lox"));
 }
 
-// test "./operator/not_class.lox" {
-//     try run_test(@embedFile("./test/operator/not_class.lox"));
-// }
+test "./operator/not_class.lox" {
+    try run_test(@embedFile("./test/operator/not_class.lox"));
+}
 
 test "./operator/add_string_nil.lox" {
     try run_test(@embedFile("./test/operator/add_string_nil.lox"));
@@ -396,9 +396,9 @@ test "./operator/less_num_nonnum.lox" {
     try run_test(@embedFile("./test/operator/less_num_nonnum.lox"));
 }
 
-// test "./operator/equals_class.lox" {
-//     try run_test(@embedFile("./test/operator/equals_class.lox"));
-// }
+test "./operator/equals_class.lox" {
+    try run_test(@embedFile("./test/operator/equals_class.lox"));
+}
 
 test "./unexpected_character.lox" {
     try run_test(@embedFile("./test/unexpected_character.lox"));
@@ -648,89 +648,89 @@ test "./bool/equality.lox" {
     try run_test(@embedFile("./test/bool/equality.lox"));
 }
 
-// test "./field/call_nonfunction_field.lox" {
-//     try run_test(@embedFile("./test/field/call_nonfunction_field.lox"));
-// }
+test "./field/call_nonfunction_field.lox" {
+    try run_test(@embedFile("./test/field/call_nonfunction_field.lox"));
+}
 
-// test "./field/set_on_string.lox" {
-//     try run_test(@embedFile("./test/field/set_on_string.lox"));
-// }
+test "./field/set_on_string.lox" {
+    try run_test(@embedFile("./test/field/set_on_string.lox"));
+}
 
-// test "./field/set_evaluation_order.lox" {
-//     try run_test(@embedFile("./test/field/set_evaluation_order.lox"));
-// }
+test "./field/set_evaluation_order.lox" {
+    try run_test(@embedFile("./test/field/set_evaluation_order.lox"));
+}
 
-// test "./field/get_on_num.lox" {
-//     try run_test(@embedFile("./test/field/get_on_num.lox"));
-// }
+test "./field/get_on_num.lox" {
+    try run_test(@embedFile("./test/field/get_on_num.lox"));
+}
 
-// test "./field/call_function_field.lox" {
-//     try run_test(@embedFile("./test/field/call_function_field.lox"));
-// }
+test "./field/call_function_field.lox" {
+    try run_test(@embedFile("./test/field/call_function_field.lox"));
+}
 
-// test "./field/get_on_string.lox" {
-//     try run_test(@embedFile("./test/field/get_on_string.lox"));
-// }
+test "./field/get_on_string.lox" {
+    try run_test(@embedFile("./test/field/get_on_string.lox"));
+}
 
-// test "./field/get_on_bool.lox" {
-//     try run_test(@embedFile("./test/field/get_on_bool.lox"));
-// }
+test "./field/get_on_bool.lox" {
+    try run_test(@embedFile("./test/field/get_on_bool.lox"));
+}
 
-// test "./field/set_on_class.lox" {
-//     try run_test(@embedFile("./test/field/set_on_class.lox"));
-// }
+test "./field/set_on_class.lox" {
+    try run_test(@embedFile("./test/field/set_on_class.lox"));
+}
 
-// test "./field/many.lox" {
-//     try run_test(@embedFile("./test/field/many.lox"));
-// }
+test "./field/many.lox" {
+    try run_test(@embedFile("./test/field/many.lox"));
+}
 
-// test "./field/set_on_function.lox" {
-//     try run_test(@embedFile("./test/field/set_on_function.lox"));
-// }
+test "./field/set_on_function.lox" {
+    try run_test(@embedFile("./test/field/set_on_function.lox"));
+}
 
-// test "./field/set_on_nil.lox" {
-//     try run_test(@embedFile("./test/field/set_on_nil.lox"));
-// }
+test "./field/set_on_nil.lox" {
+    try run_test(@embedFile("./test/field/set_on_nil.lox"));
+}
 
-// test "./field/get_on_nil.lox" {
-//     try run_test(@embedFile("./test/field/get_on_nil.lox"));
-// }
+test "./field/get_on_nil.lox" {
+    try run_test(@embedFile("./test/field/get_on_nil.lox"));
+}
 
 // test "./field/method_binds_this.lox" {
 //     try run_test(@embedFile("./test/field/method_binds_this.lox"));
 // }
 
-// test "./field/get_on_function.lox" {
-//     try run_test(@embedFile("./test/field/get_on_function.lox"));
-// }
+test "./field/get_on_function.lox" {
+    try run_test(@embedFile("./test/field/get_on_function.lox"));
+}
 
-// test "./field/on_instance.lox" {
-//     try run_test(@embedFile("./test/field/on_instance.lox"));
-// }
+test "./field/on_instance.lox" {
+    try run_test(@embedFile("./test/field/on_instance.lox"));
+}
 
-// test "./field/set_on_num.lox" {
-//     try run_test(@embedFile("./test/field/set_on_num.lox"));
-// }
+test "./field/set_on_num.lox" {
+    try run_test(@embedFile("./test/field/set_on_num.lox"));
+}
 
 // test "./field/get_and_set_method.lox" {
 //     try run_test(@embedFile("./test/field/get_and_set_method.lox"));
 // }
 
-// test "./field/undefined.lox" {
-//     try run_test(@embedFile("./test/field/undefined.lox"));
-// }
+test "./field/undefined.lox" {
+    try run_test(@embedFile("./test/field/undefined.lox"));
+}
 
-// test "./field/set_on_bool.lox" {
-//     try run_test(@embedFile("./test/field/set_on_bool.lox"));
-// }
+test "./field/set_on_bool.lox" {
+    try run_test(@embedFile("./test/field/set_on_bool.lox"));
+}
 
 // test "./field/method.lox" {
 //     try run_test(@embedFile("./test/field/method.lox"));
 // }
 
-// test "./field/get_on_class.lox" {
-//     try run_test(@embedFile("./test/field/get_on_class.lox"));
-// }
+test "./field/get_on_class.lox" {
+    try run_test(@embedFile("./test/field/get_on_class.lox"));
+}
 
 test "./closure/closed_closure_in_function.lox" {
     try run_test(@embedFile("./test/closure/closed_closure_in_function.lox"));
@@ -936,13 +936,13 @@ test "./string/multiline.lox" {
     try run_test(@embedFile("./test/string/multiline.lox"));
 }
 
-// test "./number/decimal_point_at_eof.lox" {
-//     try run_test(@embedFile("./test/number/decimal_point_at_eof.lox"));
-// }
+test "./number/decimal_point_at_eof.lox" {
+    try run_test(@embedFile("./test/number/decimal_point_at_eof.lox"));
+}
 
-// test "./number/trailing_dot.lox" {
-//     try run_test(@embedFile("./test/number/trailing_dot.lox"));
-// }
+test "./number/trailing_dot.lox" {
+    try run_test(@embedFile("./test/number/trailing_dot.lox"));
+}
 
 test "./number/literals.lox" {
     try run_test(@embedFile("./test/number/literals.lox"));
