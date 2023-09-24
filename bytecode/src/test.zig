@@ -160,6 +160,10 @@ test "./if/truth.lox" {
     try run_test(@embedFile("./test/if/truth.lox"));
 }
 
+test "./method/parse.lox" {
+    try run_test(@embedFile("./test/method/parse.lox"));
+}
+
 // test "./method/not_found.lox" {
 //     try run_test(@embedFile("./test/method/not_found.lox"));
 // }

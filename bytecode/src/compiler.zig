@@ -567,14 +567,32 @@ fn Parser(comptime Context: type) type {
 
         fn class_declaration(p: *P) void {
             p.consume(.identifier, "Expect class name.");
+            const class_name = p.previous;
             const name_constant = p.identifier_constant(p.previous);
             p.declare_variable();
 
             p.emit_bytes(@intFromEnum(chk.OpCode.class), name_constant);
             p.define_variable(name_constant);
 
+            // put class name on stack for runtime method binding
+            p.named_variable(class_name, false);
             p.consume(.lbrace, "Expect '{' before class body.");
+
+            while (!p.check(.rbrace) and !p.check(.eof)) {
+                p.method();
+            }
+
             p.consume(.rbrace, "Expect '}' after class body.");
+            p.emit_op(.pop);
+        }
+
+        fn method(p: *P) void {
+            p.consume(.identifier, "Expect method name.");
+            const name_constant = p.identifier_constant(p.previous);
+
+            p.function(.function);
+
+            p.emit_bytes(@intFromEnum(chk.OpCode.method), name_constant);
         }
 
         fn fun_declaration(p: *P) void {

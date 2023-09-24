@@ -117,6 +117,7 @@ pub const Disassembler = struct {
             .class,
             .get_property,
             .set_property,
+            .method,
             => return constant_inst(opcode, ch, offset, vm, out),
 
             .get_local,

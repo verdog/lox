@@ -304,6 +304,9 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 _ = vm.stack_pop(); // the instance
                 vm.stack_push(value);
             },
+            .method => {
+                vm.define_method(vm.read_constant().as(ObjString));
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
@@ -418,6 +421,13 @@ fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, outs: anytype) bool {
     frame.slots = vm.stack[vm.stack_top - arg_count - 1 ..];
 
     return true;
+}
+
+fn define_method(vm: *VM, name: *ObjString) void {
+    const method = vm.stack_peek(0);
+    var class = vm.stack_peek(1).as(ObjClass);
+    _ = class.methods.set(name, method);
+    _ = vm.stack_pop();
 }
 
 // TODO consider combining these read_ functions into single ones that take a type param

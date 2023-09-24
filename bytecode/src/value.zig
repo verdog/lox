@@ -316,17 +316,20 @@ pub const ObjUpvalue = struct {
 pub const ObjClass = struct {
     obj: Obj,
     name: *ObjString,
+    methods: tbl.Table,
 
     pub fn alloc(name: *ObjString, alctr: std.mem.Allocator) *ObjClass {
         var obj_cl = alctr.create(ObjClass) catch @panic("OOM");
-        obj_cl.init_in_place(name);
+        var methods = tbl.Table.init(alctr);
+        obj_cl.init_in_place(name, methods);
         return obj_cl;
     }
 
-    fn init_in_place(oc: *ObjClass, name: *ObjString) void {
+    fn init_in_place(oc: *ObjClass, name: *ObjString, methods: tbl.Table) void {
         oc.* = .{
             .obj = undefined,
             .name = name,
+            .methods = methods,
         };
 
         oc.obj.init_in_place(Obj.Type.tag(ObjClass));
@@ -334,8 +337,7 @@ pub const ObjClass = struct {
 
     pub fn deinit(oc: *ObjClass, alctr: std.mem.Allocator) void {
         _ = alctr;
-        _ = oc;
-        // nothing to do
+        oc.methods.deinit();
     }
 };
 
@@ -618,6 +620,7 @@ pub const ObjPool = struct {
 
             .class => {
                 pl.mark_obj(&obj.as(ObjClass).name.obj);
+                pl.mark_table(&obj.as(ObjClass).methods);
             },
 
             .instance => {
