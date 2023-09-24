@@ -184,7 +184,7 @@ const Scanner = struct {
     }
 
     fn peek_next(s: Scanner) u8 {
-        if (s.is_at_end()) return '\x00'; // XXX: not sure if this maps to zig correctly
+        if (s.current >= s.source.len - 1) return '\x00'; // XXX: not sure if this maps to zig correctly
         return s.source[s.current + 1];
     }
 
