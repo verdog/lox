@@ -305,6 +305,15 @@ pub const ObjPool = struct {
     globals: tbl.Table,
     objs_list: ?*Obj,
 
+    /// bytes_allocated and next_garbage_collection are unused. the book has us track
+    /// every allocation and deallocation to decide when to collect garbage. since i'm using
+    /// the "unmanaged" style, where I pass the allocator to the deinit function, decreasing
+    /// bytes_allocated after deinit is hard.
+    ///
+    /// eventually i should write an allocator wrapper that will track that cleanly.
+    bytes_allocated: usize,
+    next_garbage_collection: usize,
+
     // XXX: sloppy backpointers...
     vm: *VM,
     compiler_ref: ?**cpl.Compiler,
@@ -317,6 +326,8 @@ pub const ObjPool = struct {
             .objs_list = @as(?*Obj, null),
             .vm = vm,
             .compiler_ref = null,
+            .bytes_allocated = 0,
+            .next_garbage_collection = 1024,
         };
     }
 
