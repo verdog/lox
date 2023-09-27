@@ -192,7 +192,8 @@ pub const ObjFunction = struct {
 
     pub const Type = enum {
         script, // the top level lox script, where e.g. global variable semantics are different
-        function, // everything not that
+        method, // a class method
+        function, // everything else
     };
 
     pub fn alloc(fname: ?*ObjString, ftype: Type, alctr: std.mem.Allocator) *ObjFunction {

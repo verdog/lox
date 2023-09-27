@@ -548,29 +548,29 @@ test "./print/missing_argument.lox" {
     try run_test(@embedFile("./test/print/missing_argument.lox"));
 }
 
-// test "./this/this_in_top_level_function.lox" {
-//     try run_test(@embedFile("./test/this/this_in_top_level_function.lox"));
-// }
+test "./this/this_in_top_level_function.lox" {
+    try run_test(@embedFile("./test/this/this_in_top_level_function.lox"));
+}
 
-// test "./this/this_in_method.lox" {
-//     try run_test(@embedFile("./test/this/this_in_method.lox"));
-// }
+test "./this/this_in_method.lox" {
+    try run_test(@embedFile("./test/this/this_in_method.lox"));
+}
 
-// test "./this/this_at_top_level.lox" {
-//     try run_test(@embedFile("./test/this/this_at_top_level.lox"));
-// }
+test "./this/this_at_top_level.lox" {
+    try run_test(@embedFile("./test/this/this_at_top_level.lox"));
+}
 
-// test "./this/closure.lox" {
-//     try run_test(@embedFile("./test/this/closure.lox"));
-// }
+test "./this/closure.lox" {
+    try run_test(@embedFile("./test/this/closure.lox"));
+}
 
-// test "./this/nested_closure.lox" {
-//     try run_test(@embedFile("./test/this/nested_closure.lox"));
-// }
+test "./this/nested_closure.lox" {
+    try run_test(@embedFile("./test/this/nested_closure.lox"));
+}
 
-// test "./this/nested_class.lox" {
-//     try run_test(@embedFile("./test/this/nested_class.lox"));
-// }
+test "./this/nested_class.lox" {
+    try run_test(@embedFile("./test/this/nested_class.lox"));
+}
 
 test "./constructor/default.lox" {
     try run_test(@embedFile("./test/constructor/default.lox"));
@@ -700,9 +700,9 @@ test "./field/get_on_nil.lox" {
     try run_test(@embedFile("./test/field/get_on_nil.lox"));
 }
 
-// test "./field/method_binds_this.lox" {
-//     try run_test(@embedFile("./test/field/method_binds_this.lox"));
-// }
+test "./field/method_binds_this.lox" {
+    try run_test(@embedFile("./test/field/method_binds_this.lox"));
+}
 
 test "./field/get_on_function.lox" {
     try run_test(@embedFile("./test/field/get_on_function.lox"));
@@ -868,9 +868,9 @@ test "./assignment/infix_operator.lox" {
     try run_test(@embedFile("./test/assignment/infix_operator.lox"));
 }
 
-// test "./assignment/to_this.lox" {
-//     try run_test(@embedFile("./test/assignment/to_this.lox"));
-// }
+test "./assignment/to_this.lox" {
+    try run_test(@embedFile("./test/assignment/to_this.lox"));
+}
 
 test "./assignment/grouping.lox" {
     try run_test(@embedFile("./test/assignment/grouping.lox"));

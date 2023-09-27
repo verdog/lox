@@ -359,7 +359,11 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, outs: anytype) bool {
                 .closure => return vm.call(callee.as(ObjClosure), arg_count, outs),
                 // functions should always be wrapped in closures
                 .function => unreachable,
-                .bound_method => return vm.call(callee.as(ObjBoundMethod).method, arg_count, outs),
+                .bound_method => {
+                    const bound = callee.as(ObjBoundMethod);
+                    vm.stack[vm.stack_top - arg_count - 1] = bound.receiver;
+                    return vm.call(bound.method, arg_count, outs);
+                },
                 .native => {
                     const native = callee.as(ObjNative);
 

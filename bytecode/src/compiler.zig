@@ -259,8 +259,14 @@ pub const Compiler = struct {
 
         var reserved_local = &c.locals[0];
         reserved_local.depth = 0;
-        reserved_local.name.lexeme = ""; // so the user can't refer to it
         reserved_local.is_captured = false;
+
+        // functions reserve slot 0 for the function object, methods reserve it for `this`
+        if (f.ftype != .function) {
+            reserved_local.name.lexeme = "this";
+        } else {
+            reserved_local.name.lexeme = ""; // so the user can't refer to it
+        }
 
         return c;
     }
@@ -409,10 +415,15 @@ pub const Compiler = struct {
     }
 };
 
+pub const ClassCompiler = struct {
+    enclosing: ?*ClassCompiler = null,
+};
+
 fn Parser(comptime Context: type) type {
     return struct {
         scanner: Scanner,
         compiler: *Compiler,
+        class_compiler: ?*ClassCompiler,
         previous: Token,
         current: Token,
         pool: *val.ObjPool,
@@ -426,6 +437,7 @@ fn Parser(comptime Context: type) type {
             return .{
                 .scanner = scanner,
                 .compiler = comp,
+                .class_compiler = null,
                 .previous = undefined,
                 .current = undefined,
                 .pool = pool,
@@ -492,7 +504,7 @@ fn Parser(comptime Context: type) type {
                 // .print => {},
                 // .@"return" => {},
                 // .super => {},
-                // .this => {},
+                .this => .{ .prefix = P.this, .infix = P.unimpl, .precedence = .none },
                 .true => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
                 // .@"var" => {},
                 // .@"while" => {},
@@ -574,6 +586,11 @@ fn Parser(comptime Context: type) type {
             p.emit_bytes(@intFromEnum(chk.OpCode.class), name_constant);
             p.define_variable(name_constant);
 
+            // push class compiler onto list
+            var class_compiler = ClassCompiler{ .enclosing = p.class_compiler };
+            p.class_compiler = &class_compiler;
+            defer p.class_compiler = class_compiler.enclosing;
+
             // put class name on stack for runtime method binding
             p.named_variable(class_name, false);
             p.consume(.lbrace, "Expect '{' before class body.");
@@ -590,7 +607,7 @@ fn Parser(comptime Context: type) type {
             p.consume(.identifier, "Expect method name.");
             const name_constant = p.identifier_constant(p.previous);
 
-            p.function(.function);
+            p.function(.method);
 
             p.emit_bytes(@intFromEnum(chk.OpCode.method), name_constant);
         }
@@ -833,6 +850,15 @@ fn Parser(comptime Context: type) type {
 
         fn variable(p: *P, can_assign: bool) void {
             p.named_variable(p.previous, can_assign);
+        }
+
+        fn this(p: *P, can_assign: bool) void {
+            if (p.class_compiler == null) {
+                p.print_error_msg("Can't use 'this' outside of a class.");
+                return;
+            }
+            _ = can_assign;
+            p.variable(false);
         }
 
         fn named_variable(p: *P, name: Token, can_assign: bool) void {
