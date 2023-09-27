@@ -164,9 +164,9 @@ test "./method/parse.lox" {
     try run_test(@embedFile("./test/method/parse.lox"));
 }
 
-// test "./method/not_found.lox" {
-//     try run_test(@embedFile("./test/method/not_found.lox"));
-// }
+test "./method/not_found.lox" {
+    try run_test(@embedFile("./test/method/not_found.lox"));
+}
 
 // test "./method/too_many_parameters.lox" {
 //     try run_test(@embedFile("./test/method/too_many_parameters.lox"));
@@ -192,9 +192,9 @@ test "./method/parse.lox" {
 //     try run_test(@embedFile("./test/method/too_many_arguments.lox"));
 // }
 
-// test "./method/print_bound_method.lox" {
-//     try run_test(@embedFile("./test/method/print_bound_method.lox"));
-// }
+test "./method/print_bound_method.lox" {
+    try run_test(@embedFile("./test/method/print_bound_method.lox"));
+}
 
 // test "./method/extra_arguments.lox" {
 //     try run_test(@embedFile("./test/method/extra_arguments.lox"));

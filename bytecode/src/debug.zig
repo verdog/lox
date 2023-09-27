@@ -219,6 +219,15 @@ pub const Disassembler = struct {
                             return std.fmt.bufPrint(buf, "<{s}>.", .{name[0..13]}) catch unreachable;
                         }
                     },
+                    .bound_method => {
+                        const name = val.as(ObjBoundMethod).method.func.name.?.buf;
+                        const spaces = " " ** 64;
+                        if (name.len <= 14) {
+                            return std.fmt.bufPrint(buf, "<{s}>{s}", .{ name, spaces[0..(14 - name.len)] }) catch unreachable;
+                        } else {
+                            return std.fmt.bufPrint(buf, "<{s}>.", .{name[0..13]}) catch unreachable;
+                        }
+                    },
                     .upvalue => {
                         return std.fmt.bufPrint(buf, "{{upvalue}}", .{}) catch unreachable;
                     },
@@ -294,3 +303,4 @@ const ObjFunction = vl.ObjFunction;
 const ObjClosure = vl.ObjClosure;
 const ObjClass = vl.ObjClass;
 const ObjInstance = vl.ObjInstance;
+const ObjBoundMethod = vl.ObjBoundMethod;

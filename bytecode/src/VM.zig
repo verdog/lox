@@ -287,7 +287,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 if (instance.fields.get(name)) |value| {
                     _ = vm.stack_pop(); // the instance
                     vm.stack_push(value);
-                } else {
+                } else if (!vm.bind_method(instance.class, name)) {
                     vm.print_runtime_error(outs.err, "Undefined property '{s}'.", .{name.buf});
                     return Error.runtime_error;
                 }
@@ -430,6 +430,17 @@ fn define_method(vm: *VM, name: *ObjString) void {
     _ = vm.stack_pop();
 }
 
+fn bind_method(vm: *VM, class: *ObjClass, name: *ObjString) bool {
+    if (class.methods.get(name)) |method| {
+        const bound = vm.pool.add(ObjBoundMethod, .{ vm.stack_peek(0), method.as(ObjClosure) });
+        _ = vm.stack_pop();
+        vm.stack_push(bound);
+        return true;
+    } else {
+        return false;
+    }
+}
+
 // TODO consider combining these read_ functions into single ones that take a type param
 fn read_byte(vm: *VM) u8 {
     var frame = &vm.frames[vm.frames_count - 1];
@@ -549,3 +560,4 @@ const ObjClosure = vl.ObjClosure;
 const ObjUpvalue = vl.ObjUpvalue;
 const ObjClass = vl.ObjClass;
 const ObjInstance = vl.ObjInstance;
+const ObjBoundMethod = vl.ObjBoundMethod;

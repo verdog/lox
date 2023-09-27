@@ -69,6 +69,9 @@ pub const Value = union(enum) {
                     .closure => {
                         Value.from(ObjFunction, val.as(ObjClosure).func).print(out);
                     },
+                    .bound_method => {
+                        Value.from(ObjFunction, val.as(ObjBoundMethod).method.func).print(out);
+                    },
                     .upvalue => {
                         // should never be visible to users
                         out.print("{{upvalue {d}}}", .{@intFromPtr(val.obj)}) catch unreachable;
@@ -94,6 +97,7 @@ pub const Obj = struct {
         upvalue,
         class,
         instance,
+        bound_method,
 
         // TODO: improve these functions to only look at one list of pairs
 
@@ -106,6 +110,7 @@ pub const Obj = struct {
                 ObjUpvalue => .upvalue,
                 ObjClass => .class,
                 ObjInstance => .instance,
+                ObjBoundMethod => .bound_method,
                 else => @compileError("Not an obj type"),
             };
         }
@@ -119,6 +124,7 @@ pub const Obj = struct {
                 .upvalue => ObjUpvalue,
                 .class => ObjClass,
                 .instance => ObjInstance,
+                .bound_method => ObjBoundMethod,
             };
         }
     };
@@ -366,6 +372,34 @@ pub const ObjInstance = struct {
     pub fn deinit(oi: *ObjInstance, alctr: std.mem.Allocator) void {
         _ = alctr;
         oi.fields.deinit();
+    }
+};
+
+pub const ObjBoundMethod = struct {
+    obj: Obj,
+    receiver: Value,
+    method: *ObjClosure,
+
+    pub fn alloc(receiver: Value, method: *ObjClosure, alctr: std.mem.Allocator) *ObjBoundMethod {
+        var obj_bm = alctr.create(ObjBoundMethod) catch @panic("OOM");
+        obj_bm.init_in_place(receiver, method);
+        return obj_bm;
+    }
+
+    fn init_in_place(bm: *ObjBoundMethod, receiver: Value, method: *ObjClosure) void {
+        bm.* = .{
+            .obj = undefined,
+            .receiver = receiver,
+            .method = method,
+        };
+
+        bm.obj.init_in_place(Obj.Type.tag(ObjBoundMethod));
+    }
+
+    pub fn deinit(bm: *ObjBoundMethod, alctr: std.mem.Allocator) void {
+        _ = alctr;
+        _ = bm;
+        // nothind to do
     }
 };
 
@@ -626,6 +660,11 @@ pub const ObjPool = struct {
             .instance => {
                 pl.mark_obj(&obj.as(ObjInstance).class.obj);
                 pl.mark_table(&obj.as(ObjInstance).fields);
+            },
+
+            .bound_method => {
+                pl.mark_value(obj.as(ObjBoundMethod).receiver);
+                pl.mark_obj(&obj.as(ObjBoundMethod).method.obj);
             },
         }
     }
