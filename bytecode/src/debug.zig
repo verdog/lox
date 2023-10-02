@@ -157,6 +157,17 @@ pub const Disassembler = struct {
                 return w_offset;
             },
 
+            .invoke => {
+                emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+                _ = constant(ch, offset + 1, vm, out);
+                const arg_count = ch.code.items[offset + 2]; // prints a line
+                const arg_count_val = Value{ .number = @floatFromInt(arg_count) };
+
+                var val_buf: [16]u8 = undefined;
+                emit_line(offset + 2, arg_count, "  (arg count)", stringify_value(arg_count_val, &val_buf), vm, out);
+                return offset + 3;
+            },
+
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
                 return offset + 1;

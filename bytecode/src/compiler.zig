@@ -1078,6 +1078,13 @@ fn Parser(comptime Context: type) type {
             if (can_assign and p.match(.eql)) {
                 p.expression();
                 p.emit_bytes(@intFromEnum(chk.OpCode.set_property), name_constant);
+            } else if (p.match(.lparen)) {
+                // invoke is an optimization for the common case of a class method call.
+                // this lets us avoid constructing the method and dropping it onto the
+                // stack, only to be immediately popped and called.
+                const arg_count = p.arg_list();
+                p.emit_bytes(@intFromEnum(chk.OpCode.invoke), name_constant);
+                p.emit_byte(arg_count);
             } else {
                 p.emit_bytes(@intFromEnum(chk.OpCode.get_property), name_constant);
             }

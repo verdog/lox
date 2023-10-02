@@ -315,6 +315,15 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
             .method => {
                 vm.define_method(vm.read_constant().as(ObjString));
             },
+            .invoke => {
+                const method = vm.read_constant().as(ObjString);
+                const arg_count = vm.read_byte();
+                if (!vm.invoke(method, arg_count, outs)) {
+                    // error message printed in invoke()
+                    return Error.runtime_error;
+                }
+                frame = &vm.frames[vm.frames_count - 1];
+            },
             _ => return Error.runtime_error, // unknown opcode
         }
     }
@@ -442,6 +451,26 @@ fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, outs: anytype) bool {
     frame.slots = vm.stack[vm.stack_top - arg_count - 1 ..];
 
     return true;
+}
+
+fn invoke(vm: *VM, name: *ObjString, arg_count: u32, outs: anytype) bool {
+    var receiver = vm.stack_peek(arg_count);
+    if (!receiver.is(ObjInstance)) {
+        vm.print_runtime_error(outs.err, "Only instances have methods.", .{});
+        return false;
+    }
+
+    var instance = receiver.as(ObjInstance);
+    return vm.invoke_from_class(instance.class, name, arg_count, outs);
+}
+
+fn invoke_from_class(vm: *VM, class: *ObjClass, name: *ObjString, arg_count: u32, outs: anytype) bool {
+    if (class.methods.get(name)) |method| {
+        return vm.call(method.as(ObjClosure), arg_count, outs);
+    } else {
+        vm.print_runtime_error(outs.err, "Undefined property '{s}'.", .{name.buf});
+        return false;
+    }
 }
 
 fn define_method(vm: *VM, name: *ObjString) void {
