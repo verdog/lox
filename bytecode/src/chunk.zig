@@ -35,6 +35,7 @@ pub const OpCode = enum(u8) {
     set_property,
     method,
     invoke,
+    inherit,
     _,
 };
 

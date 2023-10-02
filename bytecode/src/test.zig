@@ -244,33 +244,33 @@ test "./for/return_inside.lox" {
     try run_test(@embedFile("./test/for/return_inside.lox"));
 }
 
-// test "./inheritance/inherit_from_number.lox" {
-//     try run_test(@embedFile("./test/inheritance/inherit_from_number.lox"));
-// }
+test "./inheritance/inherit_from_number.lox" {
+    try run_test(@embedFile("./test/inheritance/inherit_from_number.lox"));
+}
 
-// test "./inheritance/inherit_methods.lox" {
-//     try run_test(@embedFile("./test/inheritance/inherit_methods.lox"));
-// }
+test "./inheritance/inherit_methods.lox" {
+    try run_test(@embedFile("./test/inheritance/inherit_methods.lox"));
+}
 
-// test "./inheritance/set_fields_from_base_class.lox" {
-//     try run_test(@embedFile("./test/inheritance/set_fields_from_base_class.lox"));
-// }
+test "./inheritance/set_fields_from_base_class.lox" {
+    try run_test(@embedFile("./test/inheritance/set_fields_from_base_class.lox"));
+}
 
-// test "./inheritance/inherit_from_function.lox" {
-//     try run_test(@embedFile("./test/inheritance/inherit_from_function.lox"));
-// }
+test "./inheritance/inherit_from_function.lox" {
+    try run_test(@embedFile("./test/inheritance/inherit_from_function.lox"));
+}
 
-// test "./inheritance/constructor.lox" {
-//     try run_test(@embedFile("./test/inheritance/constructor.lox"));
-// }
+test "./inheritance/constructor.lox" {
+    try run_test(@embedFile("./test/inheritance/constructor.lox"));
+}
 
-// test "./inheritance/parenthesized_superclass.lox" {
-//     try run_test(@embedFile("./test/inheritance/parenthesized_superclass.lox"));
-// }
+test "./inheritance/parenthesized_superclass.lox" {
+    try run_test(@embedFile("./test/inheritance/parenthesized_superclass.lox"));
+}
 
-// test "./inheritance/inherit_from_nil.lox" {
-//     try run_test(@embedFile("./test/inheritance/inherit_from_nil.lox"));
-// }
+test "./inheritance/inherit_from_nil.lox" {
+    try run_test(@embedFile("./test/inheritance/inherit_from_nil.lox"));
+}
 
 test "./operator/add_bool_string.lox" {
     try run_test(@embedFile("./test/operator/add_bool_string.lox"));
@@ -896,21 +896,21 @@ test "./class/local_reference_self.lox" {
     try run_test(@embedFile("./test/class/local_reference_self.lox"));
 }
 
-// test "./class/local_inherit_self.lox" {
-//     try run_test(@embedFile("./test/class/local_inherit_self.lox"));
-// }
+test "./class/local_inherit_self.lox" {
+    try run_test(@embedFile("./test/class/local_inherit_self.lox"));
+}
 
-// test "./class/local_inherit_other.lox" {
-//     try run_test(@embedFile("./test/class/local_inherit_other.lox"));
-// }
+test "./class/local_inherit_other.lox" {
+    try run_test(@embedFile("./test/class/local_inherit_other.lox"));
+}
 
-// test "./class/inherit_self.lox" {
-//     try run_test(@embedFile("./test/class/inherit_self.lox"));
-// }
+test "./class/inherit_self.lox" {
+    try run_test(@embedFile("./test/class/inherit_self.lox"));
+}
 
-// test "./class/inherited_method.lox" {
-//     try run_test(@embedFile("./test/class/inherited_method.lox"));
-// }
+test "./class/inherited_method.lox" {
+    try run_test(@embedFile("./test/class/inherited_method.lox"));
+}
 
 test "./class/empty.lox" {
     try run_test(@embedFile("./test/class/empty.lox"));
@@ -1124,9 +1124,9 @@ test "./regression/40.lox" {
     try run_test(@embedFile("./test/regression/40.lox"));
 }
 
-// test "./regression/394.lox" {
-//     try run_test(@embedFile("./test/regression/394.lox"));
-// }
+test "./regression/394.lox" {
+    try run_test(@embedFile("./test/regression/394.lox"));
+}
 
 test "./logical_operator/or_truth.lox" {
     try run_test(@embedFile("./test/logical_operator/or_truth.lox"));

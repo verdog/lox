@@ -596,6 +596,19 @@ fn Parser(comptime Context: type) type {
             p.class_compiler = &class_compiler;
             defer p.class_compiler = class_compiler.enclosing;
 
+            // handle inheritance
+            if (p.match(.less)) {
+                p.consume(.identifier, "Expect superclass name.");
+                p.variable(false);
+
+                if (std.mem.eql(u8, class_name.lexeme, p.previous.lexeme)) {
+                    p.print_error_msg("A class can't inherit from itself.");
+                }
+
+                p.named_variable(class_name, false);
+                p.emit_op(.inherit);
+            }
+
             // put class name on stack for runtime method binding
             p.named_variable(class_name, false);
             p.consume(.lbrace, "Expect '{' before class body.");

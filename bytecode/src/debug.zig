@@ -108,6 +108,7 @@ pub const Disassembler = struct {
             .greater,
             .pop,
             .close_upvalue,
+            .inherit,
             => return simple_inst(opcode, offset, vm, out),
 
             .define_global,

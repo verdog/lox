@@ -254,6 +254,15 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 }
                 frame = &vm.frames[vm.frames_count - 1];
             },
+            .invoke => {
+                const method = vm.read_constant().as(ObjString);
+                const arg_count = vm.read_byte();
+                if (!vm.invoke(method, arg_count, outs)) {
+                    // error message printed in invoke()
+                    return Error.runtime_error;
+                }
+                frame = &vm.frames[vm.frames_count - 1];
+            },
             .closure => {
                 const func = vm.read_constant().as(ObjFunction);
                 const closure = vm.pool.add(ObjClosure, .{func}).as(ObjClosure);
@@ -315,14 +324,16 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
             .method => {
                 vm.define_method(vm.read_constant().as(ObjString));
             },
-            .invoke => {
-                const method = vm.read_constant().as(ObjString);
-                const arg_count = vm.read_byte();
-                if (!vm.invoke(method, arg_count, outs)) {
-                    // error message printed in invoke()
+            .inherit => {
+                const super = vm.stack_peek(1);
+                if (!super.is(ObjClass)) {
+                    vm.print_runtime_error(outs.err, "Superclass must be a class.", .{});
                     return Error.runtime_error;
                 }
-                frame = &vm.frames[vm.frames_count - 1];
+                const superclass = super.as(ObjClass);
+                const subclass = vm.stack_peek(0).as(ObjClass);
+                subclass.methods.add_all(superclass.methods);
+                _ = vm.stack_pop(); // the subclass
             },
             _ => return Error.runtime_error, // unknown opcode
         }

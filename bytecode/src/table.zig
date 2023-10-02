@@ -98,13 +98,13 @@ pub const Table = struct {
         }
     }
 
-    // pub fn add_all(t: Table, to: *Table) void {
-    //     for (t.entries.items) |e| {
-    //         if (e.key) |k| {
-    //             to.set(k, e.value);
-    //         }
-    //     }
-    // }
+    pub fn add_all(t: *Table, from: Table) void {
+        for (from.entries) |e| {
+            if (e.key) |k| {
+                _ = t.set(k, e.value);
+            }
+        }
+    }
 
     pub fn remove_white(t: *Table) void {
         for (t.entries) |e| {
