@@ -422,6 +422,7 @@ pub const Compiler = struct {
 
 pub const ClassCompiler = struct {
     enclosing: ?*ClassCompiler = null,
+    has_superclass: bool,
 };
 
 fn Parser(comptime Context: type) type {
@@ -508,7 +509,7 @@ fn Parser(comptime Context: type) type {
                 .@"or" => .{ .prefix = P.unimpl, .infix = P.@"or", .precedence = .@"or" },
                 // .print => {},
                 // .@"return" => {},
-                // .super => {},
+                .super => .{ .prefix = P.super, .infix = P.unimpl, .precedence = .none },
                 .this => .{ .prefix = P.this, .infix = P.unimpl, .precedence = .none },
                 .true => .{ .prefix = P.literal, .infix = P.unimpl, .precedence = .none },
                 // .@"var" => {},
@@ -592,7 +593,7 @@ fn Parser(comptime Context: type) type {
             p.define_variable(name_constant);
 
             // push class compiler onto list
-            var class_compiler = ClassCompiler{ .enclosing = p.class_compiler };
+            var class_compiler = ClassCompiler{ .enclosing = p.class_compiler, .has_superclass = false };
             p.class_compiler = &class_compiler;
             defer p.class_compiler = class_compiler.enclosing;
 
@@ -605,8 +606,15 @@ fn Parser(comptime Context: type) type {
                     p.print_error_msg("A class can't inherit from itself.");
                 }
 
+                // begin a scope to store the super class. otherwise two classes in the
+                // same scope would use the same slot to store their super.
+                p.begin_scope();
+                p.add_local(synthetic_token("super"));
+                p.define_variable(0);
+
                 p.named_variable(class_name, false);
                 p.emit_op(.inherit);
+                class_compiler.has_superclass = true;
             }
 
             // put class name on stack for runtime method binding
@@ -619,6 +627,31 @@ fn Parser(comptime Context: type) type {
 
             p.consume(.rbrace, "Expect '}' after class body.");
             p.emit_op(.pop);
+            if (class_compiler.has_superclass) p.end_scope();
+        }
+
+        fn synthetic_token(text: []const u8) Token {
+            return .{
+                .typ = undefined,
+                .lexeme = text,
+                .line = undefined,
+            };
+        }
+
+        fn super(p: *P, can_assign: bool) void {
+            if (p.class_compiler == null) {
+                p.print_error_msg("Can't use 'super' outside of a class.");
+            } else if (!p.class_compiler.?.has_superclass) {
+                p.print_error_msg("Can't use 'super' in a class with no superclass.");
+            }
+            _ = can_assign;
+            p.consume(.dot, "Expect '.' after 'super'.");
+            p.consume(.identifier, "Expect superclass method name.");
+            const name = p.identifier_constant(p.previous);
+
+            p.named_variable(synthetic_token("this"), false);
+            p.named_variable(synthetic_token("super"), false);
+            p.emit_bytes(@intFromEnum(chk.OpCode.get_super), name);
         }
 
         fn method(p: *P) void {

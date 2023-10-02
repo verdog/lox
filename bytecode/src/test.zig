@@ -1040,85 +1040,85 @@ test "./function/nested_call_with_arguments.lox" {
     try run_test(@embedFile("./test/function/nested_call_with_arguments.lox"));
 }
 
-// test "./super/super_without_name.lox" {
-//     try run_test(@embedFile("./test/super/super_without_name.lox"));
-// }
+test "./super/super_without_name.lox" {
+    try run_test(@embedFile("./test/super/super_without_name.lox"));
+}
 
-// test "./super/call_other_method.lox" {
-//     try run_test(@embedFile("./test/super/call_other_method.lox"));
-// }
+test "./super/call_other_method.lox" {
+    try run_test(@embedFile("./test/super/call_other_method.lox"));
+}
 
-// test "./super/super_in_inherited_method.lox" {
-//     try run_test(@embedFile("./test/super/super_in_inherited_method.lox"));
-// }
+test "./super/super_in_inherited_method.lox" {
+    try run_test(@embedFile("./test/super/super_in_inherited_method.lox"));
+}
 
-// test "./super/call_same_method.lox" {
-//     try run_test(@embedFile("./test/super/call_same_method.lox"));
-// }
+test "./super/call_same_method.lox" {
+    try run_test(@embedFile("./test/super/call_same_method.lox"));
+}
 
-// test "./super/super_in_top_level_function.lox" {
-//     try run_test(@embedFile("./test/super/super_in_top_level_function.lox"));
-// }
+test "./super/super_in_top_level_function.lox" {
+    try run_test(@embedFile("./test/super/super_in_top_level_function.lox"));
+}
 
-// test "./super/super_without_dot.lox" {
-//     try run_test(@embedFile("./test/super/super_without_dot.lox"));
-// }
+test "./super/super_without_dot.lox" {
+    try run_test(@embedFile("./test/super/super_without_dot.lox"));
+}
 
-// test "./super/this_in_superclass_method.lox" {
-//     try run_test(@embedFile("./test/super/this_in_superclass_method.lox"));
-// }
+test "./super/this_in_superclass_method.lox" {
+    try run_test(@embedFile("./test/super/this_in_superclass_method.lox"));
+}
 
-// test "./super/super_at_top_level.lox" {
-//     try run_test(@embedFile("./test/super/super_at_top_level.lox"));
-// }
+test "./super/super_at_top_level.lox" {
+    try run_test(@embedFile("./test/super/super_at_top_level.lox"));
+}
 
-// test "./super/parenthesized.lox" {
-//     try run_test(@embedFile("./test/super/parenthesized.lox"));
-// }
+test "./super/parenthesized.lox" {
+    try run_test(@embedFile("./test/super/parenthesized.lox"));
+}
 
-// test "./super/no_superclass_bind.lox" {
-//     try run_test(@embedFile("./test/super/no_superclass_bind.lox"));
-// }
+test "./super/no_superclass_bind.lox" {
+    try run_test(@embedFile("./test/super/no_superclass_bind.lox"));
+}
 
-// test "./super/constructor.lox" {
-//     try run_test(@embedFile("./test/super/constructor.lox"));
-// }
+test "./super/constructor.lox" {
+    try run_test(@embedFile("./test/super/constructor.lox"));
+}
 
-// test "./super/missing_arguments.lox" {
-//     try run_test(@embedFile("./test/super/missing_arguments.lox"));
-// }
+test "./super/missing_arguments.lox" {
+    try run_test(@embedFile("./test/super/missing_arguments.lox"));
+}
 
-// test "./super/closure.lox" {
-//     try run_test(@embedFile("./test/super/closure.lox"));
-// }
+test "./super/closure.lox" {
+    try run_test(@embedFile("./test/super/closure.lox"));
+}
 
-// test "./super/no_superclass_method.lox" {
-//     try run_test(@embedFile("./test/super/no_superclass_method.lox"));
-// }
+test "./super/no_superclass_method.lox" {
+    try run_test(@embedFile("./test/super/no_superclass_method.lox"));
+}
 
-// test "./super/bound_method.lox" {
-//     try run_test(@embedFile("./test/super/bound_method.lox"));
-// }
+test "./super/bound_method.lox" {
+    try run_test(@embedFile("./test/super/bound_method.lox"));
+}
 
-// test "./super/no_superclass_call.lox" {
-//     try run_test(@embedFile("./test/super/no_superclass_call.lox"));
-// }
+test "./super/no_superclass_call.lox" {
+    try run_test(@embedFile("./test/super/no_superclass_call.lox"));
+}
 
-// test "./super/extra_arguments.lox" {
-//     try run_test(@embedFile("./test/super/extra_arguments.lox"));
-// }
+test "./super/extra_arguments.lox" {
+    try run_test(@embedFile("./test/super/extra_arguments.lox"));
+}
 
-// test "./super/super_in_closure_in_inherited_method.lox" {
-//     try run_test(@embedFile("./test/super/super_in_closure_in_inherited_method.lox"));
-// }
+test "./super/super_in_closure_in_inherited_method.lox" {
+    try run_test(@embedFile("./test/super/super_in_closure_in_inherited_method.lox"));
+}
 
-// test "./super/reassign_superclass.lox" {
-//     try run_test(@embedFile("./test/super/reassign_superclass.lox"));
-// }
+test "./super/reassign_superclass.lox" {
+    try run_test(@embedFile("./test/super/reassign_superclass.lox"));
+}
 
-// test "./super/indirectly_inherited.lox" {
-//     try run_test(@embedFile("./test/super/indirectly_inherited.lox"));
-// }
+test "./super/indirectly_inherited.lox" {
+    try run_test(@embedFile("./test/super/indirectly_inherited.lox"));
+}
 
 test "./regression/40.lox" {
     try run_test(@embedFile("./test/regression/40.lox"));

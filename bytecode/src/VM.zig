@@ -304,8 +304,7 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 if (instance.fields.get(name)) |value| {
                     _ = vm.stack_pop(); // the instance
                     vm.stack_push(value);
-                } else if (!vm.bind_method(instance.class, name)) {
-                    vm.print_runtime_error(outs.err, "Undefined property '{s}'.", .{name.buf});
+                } else if (!vm.bind_method(instance.class, name, outs)) {
                     return Error.runtime_error;
                 }
             },
@@ -334,6 +333,15 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 const subclass = vm.stack_peek(0).as(ObjClass);
                 subclass.methods.add_all(superclass.methods);
                 _ = vm.stack_pop(); // the subclass
+            },
+            .get_super => {
+                const name = vm.read_constant().as(ObjString);
+                const superclass = vm.stack_pop().as(ObjClass);
+
+                if (!vm.bind_method(superclass, name, outs)) {
+                    // error already printed in bind_method()
+                    return Error.runtime_error;
+                }
             },
             _ => return Error.runtime_error, // unknown opcode
         }
@@ -497,13 +505,14 @@ fn define_method(vm: *VM, name: *ObjString) void {
     _ = vm.stack_pop();
 }
 
-fn bind_method(vm: *VM, class: *ObjClass, name: *ObjString) bool {
+fn bind_method(vm: *VM, class: *ObjClass, name: *ObjString, outs: anytype) bool {
     if (class.methods.get(name)) |method| {
         const bound = vm.pool.add(ObjBoundMethod, .{ vm.stack_peek(0), method.as(ObjClosure) });
         _ = vm.stack_pop();
         vm.stack_push(bound);
         return true;
     } else {
+        vm.print_runtime_error(outs.err, "Undefined property '{s}'.", .{name.buf});
         return false;
     }
 }
