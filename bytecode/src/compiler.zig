@@ -410,7 +410,12 @@ pub const Compiler = struct {
     }
 
     pub fn emit_return(comp: *Compiler, line: i32) void {
-        comp.emit_byte(@intFromEnum(chk.OpCode.nil), line);
+        if (comp.function.ftype == .initializer) {
+            comp.emit_byte(@intFromEnum(chk.OpCode.get_local), line);
+            comp.emit_byte(0, line);
+        } else {
+            comp.emit_byte(@intFromEnum(chk.OpCode.nil), line);
+        }
         comp.emit_byte(@intFromEnum(chk.OpCode.@"return"), line);
     }
 };
@@ -607,7 +612,13 @@ fn Parser(comptime Context: type) type {
             p.consume(.identifier, "Expect method name.");
             const name_constant = p.identifier_constant(p.previous);
 
-            p.function(.method);
+            const ftype: val.ObjFunction.Type = blk: {
+                if (std.mem.eql(u8, p.previous.lexeme, "init")) {
+                    break :blk .initializer;
+                }
+                break :blk .method;
+            };
+            p.function(ftype);
 
             p.emit_bytes(@intFromEnum(chk.OpCode.method), name_constant);
         }
@@ -800,6 +811,14 @@ fn Parser(comptime Context: type) type {
             if (p.match(.semicolon)) {
                 p.emit_return();
             } else {
+                if (p.compiler.function.ftype == .initializer) {
+                    // we do this check here instead of above with the .script check
+                    // because a return *with no value* in an initializer is ok.
+                    p.print_error_msg("Can't return a value from an initializer.");
+                    // fall through. we let the compiler handle the value as to not put it
+                    // into a super messed up state which would result in a flood of error
+                    // messages.
+                }
                 p.expression();
                 p.consume(.semicolon, "Expect ';' after return value.");
                 p.emit_op(.@"return");

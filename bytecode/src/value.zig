@@ -193,6 +193,7 @@ pub const ObjFunction = struct {
     pub const Type = enum {
         script, // the top level lox script, where e.g. global variable semantics are different
         method, // a class method
+        initializer, // a class init()
         function, // everything else
     };
 
@@ -558,6 +559,12 @@ pub const ObjPool = struct {
         if (dbg.options.log_garbage_collection)
             log.debug(" gc mark internal roots", .{});
         pl.mark_compiler_roots();
+
+        if (pl.vm.init_string) |is| {
+            if (dbg.options.log_garbage_collection)
+                log.debug(" gc mark init string", .{});
+            pl.mark_obj(&is.obj);
+        }
     }
 
     fn mark_compiler_roots(pl: *ObjPool) void {

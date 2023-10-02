@@ -24,6 +24,7 @@ stack: [stack_max]Value = undefined,
 stack_top: usize = undefined,
 frames: [frames_max]CallFrame = undefined,
 frames_count: usize = undefined,
+init_string: ?*ObjString,
 pool: vl.ObjPool,
 open_upvalues: ?*ObjUpvalue,
 gray_stack: std.ArrayList(*Obj),
@@ -36,6 +37,7 @@ pub fn init_in_place(vm: *VM, alctr: std.mem.Allocator) void {
         .start_time = std.time.milliTimestamp(),
         .open_upvalues = null,
         .gray_stack = @TypeOf(vm.gray_stack).init(alctr),
+        .init_string = null,
     };
 }
 
@@ -44,12 +46,15 @@ fn define_natives(vm: *VM) void {
     vm.define_native("clock", nat.clock, 0);
 }
 
-pub fn deinit(vm: VM) void {
+pub fn deinit(vm: *VM) void {
+    vm.init_string = null; // backing memory will be free'd in pool.deinit
     vm.pool.deinit();
     vm.gray_stack.deinit();
 }
 
 pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, outs: anytype) !void {
+    // TODO nicely wrap up this init sequence
+
     vm.stack_reset();
     vm.frames_count = 0;
 
@@ -65,6 +70,9 @@ pub fn interpret(vm: *VM, source_text: []const u8, alctr: std.mem.Allocator, out
 
     log.debug("set up initial call frame", .{});
     _ = vm.call(closure, 0, outs);
+
+    log.debug("create init string", .{});
+    vm.init_string = vm.pool.make_string_value("init").as(ObjString);
 
     vm.source = source_text;
 
@@ -394,7 +402,15 @@ fn call_value(vm: *VM, callee: Value, arg_count: u32, outs: anytype) bool {
                     const class = callee.as(ObjClass);
                     const instance = vm.pool.add(ObjInstance, .{class});
                     vm.stack[vm.stack_top - arg_count - 1] = instance;
-                    return true;
+
+                    if (class.methods.get(vm.init_string.?)) |initzr| {
+                        return vm.call(initzr.as(ObjClosure), arg_count, outs);
+                    } else if (arg_count != 0) {
+                        vm.print_runtime_error(outs.err, "Expected 0 arguments but got {d}.", .{arg_count});
+                        return false;
+                    } else {
+                        return true;
+                    }
                 },
                 else => {}, // fall through
             }

@@ -576,45 +576,45 @@ test "./constructor/default.lox" {
     try run_test(@embedFile("./test/constructor/default.lox"));
 }
 
-// test "./constructor/default_arguments.lox" {
-//     try run_test(@embedFile("./test/constructor/default_arguments.lox"));
-// }
+test "./constructor/default_arguments.lox" {
+    try run_test(@embedFile("./test/constructor/default_arguments.lox"));
+}
 
-// test "./constructor/return_value.lox" {
-//     try run_test(@embedFile("./test/constructor/return_value.lox"));
-// }
+test "./constructor/return_value.lox" {
+    try run_test(@embedFile("./test/constructor/return_value.lox"));
+}
 
-// test "./constructor/early_return.lox" {
-//     try run_test(@embedFile("./test/constructor/early_return.lox"));
-// }
+test "./constructor/early_return.lox" {
+    try run_test(@embedFile("./test/constructor/early_return.lox"));
+}
 
-// test "./constructor/call_init_early_return.lox" {
-//     try run_test(@embedFile("./test/constructor/call_init_early_return.lox"));
-// }
+test "./constructor/call_init_early_return.lox" {
+    try run_test(@embedFile("./test/constructor/call_init_early_return.lox"));
+}
 
-// test "./constructor/missing_arguments.lox" {
-//     try run_test(@embedFile("./test/constructor/missing_arguments.lox"));
-// }
+test "./constructor/missing_arguments.lox" {
+    try run_test(@embedFile("./test/constructor/missing_arguments.lox"));
+}
 
-// test "./constructor/call_init_explicitly.lox" {
-//     try run_test(@embedFile("./test/constructor/call_init_explicitly.lox"));
-// }
+test "./constructor/call_init_explicitly.lox" {
+    try run_test(@embedFile("./test/constructor/call_init_explicitly.lox"));
+}
 
-// test "./constructor/return_in_nested_function.lox" {
-//     try run_test(@embedFile("./test/constructor/return_in_nested_function.lox"));
-// }
+test "./constructor/return_in_nested_function.lox" {
+    try run_test(@embedFile("./test/constructor/return_in_nested_function.lox"));
+}
 
-// test "./constructor/init_not_method.lox" {
-//     try run_test(@embedFile("./test/constructor/init_not_method.lox"));
-// }
+test "./constructor/init_not_method.lox" {
+    try run_test(@embedFile("./test/constructor/init_not_method.lox"));
+}
 
-// test "./constructor/arguments.lox" {
-//     try run_test(@embedFile("./test/constructor/arguments.lox"));
-// }
+test "./constructor/arguments.lox" {
+    try run_test(@embedFile("./test/constructor/arguments.lox"));
+}
 
-// test "./constructor/extra_arguments.lox" {
-//     try run_test(@embedFile("./test/constructor/extra_arguments.lox"));
-// }
+test "./constructor/extra_arguments.lox" {
+    try run_test(@embedFile("./test/constructor/extra_arguments.lox"));
+}
 
 test "./while/fun_in_body.lox" {
     try run_test(@embedFile("./test/while/fun_in_body.lox"));
