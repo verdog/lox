@@ -461,6 +461,12 @@ fn invoke(vm: *VM, name: *ObjString, arg_count: u32, outs: anytype) bool {
     }
 
     var instance = receiver.as(ObjInstance);
+    if (instance.fields.get(name)) |field| {
+        // properties shadow methods.
+        vm.stack[vm.stack_top - arg_count - 1] = field;
+        return vm.call_value(field, arg_count, outs);
+    }
+
     return vm.invoke_from_class(instance.class, name, arg_count, outs);
 }
 
