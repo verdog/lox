@@ -77,7 +77,7 @@ fn parse_test(text: []const u8, alctr: std.mem.Allocator) Expected {
     };
 }
 
-fn run_test(text: []const u8) !void {
+pub fn run_test(text: []const u8) !void {
     var vm: VM = undefined;
     vm.init_in_place(std.testing.allocator);
     defer vm.deinit();
@@ -138,25 +138,6 @@ fn run_test(text: []const u8) !void {
         // should have errored
         return error.TestUnexpectedResult;
     }
-}
-
-fn run_bench_test(text: []const u8) !void {
-    var vm: VM = undefined;
-    vm.init_in_place(std.testing.allocator);
-    defer vm.deinit();
-
-    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer out_buf.deinit();
-
-    var err_buf = std.ArrayList(u8).init(std.testing.allocator);
-    defer err_buf.deinit();
-
-    var out = out_buf.writer();
-    var err = err_buf.writer();
-    var outs = .{ .out = out, .err = err };
-
-    // just don't crash
-    try vm.interpret(text, std.testing.allocator, outs);
 }
 
 test "./if/fun_in_then.lox" {
@@ -825,94 +806,6 @@ test "./closure/close_over_later_variable.lox" {
 
 test "./closure/open_closure_in_function.lox" {
     try run_test(@embedFile("./test/closure/open_closure_in_function.lox"));
-}
-
-test "./benchmark/string_equality.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/string_equality.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/zoo.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/zoo.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/properties.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/properties.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/invocation.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/invocation.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/zoo_batch.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/zoo_batch.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/fib.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/fib.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/trees.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/trees.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/method_call.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/method_call.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/binary_trees.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_bench_test(@embedFile("./test/benchmark/binary_trees.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/equality.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/equality.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
-}
-
-test "./benchmark/instantiation.lox" {
-    if (dbg.options.run_benchmark_tests) {
-        try run_test(@embedFile("./test/benchmark/instantiation.lox"));
-    } else {
-        return error.SkipZigTest;
-    }
 }
 
 test "./call/bool.lox" {

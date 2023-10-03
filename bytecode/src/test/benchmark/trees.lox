@@ -21,7 +21,7 @@ class Tree {
   }
 }
 
-var tree = Tree(5);
+var tree = Tree(6);
 var start = clock();
 for (var i = 0; i < 10; i = i + 1) {
   var value = tree.walk();

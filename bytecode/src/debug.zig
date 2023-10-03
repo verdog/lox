@@ -7,7 +7,6 @@ pub const DebugOptions = struct {
     dump_stack_on_runtime_error: bool = false, // it's adequately represented in the exec trace
     stress_garbage_collection: bool = true,
     log_garbage_collection: bool = false,
-    run_benchmark_tests: bool = false,
 };
 
 pub var options = switch (@import("builtin").is_test) {
@@ -19,7 +18,6 @@ pub var options = switch (@import("builtin").is_test) {
         .dump_stack_on_runtime_error = false,
         .stress_garbage_collection = true,
         .log_garbage_collection = false,
-        .run_benchmark_tests = false,
     },
 };
 

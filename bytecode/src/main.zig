@@ -93,9 +93,12 @@ test "run all tests" {
 }
 
 const std = @import("std");
-var gpa = std.heap.GeneralPurposeAllocator(.{
-    .stack_trace_frames = 32,
-}){};
+var gpa = switch (@import("builtin").mode) {
+    .Debug => std.heap.GeneralPurposeAllocator(.{
+        .stack_trace_frames = 32,
+    }){},
+    else => std.heap.ArenaAllocator(std.heap.page_allocator),
+};
 var heap = gpa.allocator();
 
 const log = std.log.scoped(.main);
