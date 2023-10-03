@@ -2,26 +2,16 @@
 
 Implementations of the lox language from [Crafting Interpreters](https://craftinginterpreters.com/)
 
-`treewalk/` is the treewalk interpreter implementation (implemented up to functions)
-`bytecode/` is the bytecode interpreter implementation (WIP)
+`treewalk/` is the treewalk interpreter implementation
+`bytecode/` is the bytecode interpreter implementation
 
-Both are written and zig and can be built via
+Both are written in zig 0.11.0.
 
-```
-$ cd bytecode
-$ zig build
-```
-
-Try an example:
-
-```
-$ cd bytecode
-$ zig build run -- ./examples/breakfast.lox
-```
-
-Use zig 0.11.0.
+More information for each interpreter is in each directory.
 
 ## Example Output
+
+This output is from the interpreter in `bytecode/`.
 
 From 2a6c616
 
