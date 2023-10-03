@@ -28,5 +28,30 @@ zig test ./src/main.zig test # slightly fancier output
 
 ## Benchmark Tests
 
-Some tests are for benchmarking and take a long time. They are skipped by default. If you
-want to run them, edit the debug options in ./src/debug.zig.
+Run with:
+
+```
+zig test [-Drelease=true] ./src/test_benchmark.zig
+```
+
+### Times
+
+These are times from my own machine and are really only meant for my own reference.
+
+Generated with:
+```
+zig test -Drelease=true ./src/test_benchmark.zig
+```
+
+| Benchmark         | Initial completion of book (57287f5) |
+| ----------------- | ------------------------------------ |
+| `string_equality` | 9,1  seconds                         |
+| `zoo`             | 2.3  seconds                         |
+| `properties`      | 2.7  seconds                         |
+| `invocation`      | 1.8  seconds                         |
+| `fib`             | 6.4  seconds                         |
+| `trees`           | 11.8 seconds                         |
+| `method_call`     | 1.2  seconds                         |
+| `binary_trees`    | 2.0  seconds                         |
+| `equality`        | 1.7  seconds                         |
+| `instantiation`   | 2.2  seconds                         |
