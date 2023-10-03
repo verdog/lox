@@ -263,6 +263,16 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
                 }
                 frame = &vm.frames[vm.frames_count - 1];
             },
+            .super_invoke => {
+                const method = vm.read_constant().as(ObjString);
+                const arg_count = vm.read_byte();
+                const superclass = vm.stack_pop().as(ObjClass);
+                if (!vm.invoke_from_class(superclass, method, arg_count, outs)) {
+                    // error message printed in invoke_from_class()
+                    return Error.runtime_error;
+                }
+                frame = &vm.frames[vm.frames_count - 1];
+            },
             .closure => {
                 const func = vm.read_constant().as(ObjFunction);
                 const closure = vm.pool.add(ObjClosure, .{func}).as(ObjClosure);

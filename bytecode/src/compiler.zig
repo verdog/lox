@@ -650,8 +650,15 @@ fn Parser(comptime Context: type) type {
             const name = p.identifier_constant(p.previous);
 
             p.named_variable(synthetic_token("this"), false);
-            p.named_variable(synthetic_token("super"), false);
-            p.emit_bytes(@intFromEnum(chk.OpCode.get_super), name);
+            if (p.match(.lparen)) {
+                const arg_count = p.arg_list();
+                p.named_variable(synthetic_token("super"), false);
+                p.emit_bytes(@intFromEnum(chk.OpCode.super_invoke), name);
+                p.emit_byte(arg_count);
+            } else {
+                p.named_variable(synthetic_token("super"), false);
+                p.emit_bytes(@intFromEnum(chk.OpCode.get_super), name);
+            }
         }
 
         fn method(p: *P) void {

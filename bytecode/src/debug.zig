@@ -159,16 +159,7 @@ pub const Disassembler = struct {
                 return w_offset;
             },
 
-            .invoke => {
-                emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
-                _ = constant(ch, offset + 1, vm, out);
-                const arg_count = ch.code.items[offset + 2]; // prints a line
-                const arg_count_val = Value{ .number = @floatFromInt(arg_count) };
-
-                var val_buf: [16]u8 = undefined;
-                emit_line(offset + 2, arg_count, "  (arg count)", stringify_value(arg_count_val, &val_buf), vm, out);
-                return offset + 3;
-            },
+            .invoke, .super_invoke => return invoke_inst(opcode, ch, offset, vm, out),
 
             _ => {
                 out.print("Unknown opcode: {x}", .{ch.code.items[offset]}) catch unreachable;
@@ -299,6 +290,17 @@ pub const Disassembler = struct {
         emit_line(offset, @intFromEnum(opcode), @tagName(opcode), str, vm, out);
         emit_line(offset + 1, hi_byte, "  (jump hi byte)", "", vm, out);
         emit_line(offset + 2, @truncate(lo), "  (jump lo byte)", "", vm, out);
+        return offset + 3;
+    }
+
+    fn invoke_inst(opcode: OpCode, ch: Chunk, offset: usize, vm: ?*VM, out: anytype) usize {
+        emit_line(offset, @intFromEnum(opcode), @tagName(opcode), "", vm, out);
+        _ = constant(ch, offset + 1, vm, out);
+        const arg_count = ch.code.items[offset + 2]; // prints a line
+        const arg_count_val = Value{ .number = @floatFromInt(arg_count) };
+
+        var val_buf: [16]u8 = undefined;
+        emit_line(offset + 2, arg_count, "  (arg count)", stringify_value(arg_count_val, &val_buf), vm, out);
         return offset + 3;
     }
 };
