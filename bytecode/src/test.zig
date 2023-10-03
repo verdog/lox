@@ -113,11 +113,50 @@ fn run_test(text: []const u8) !void {
 
     if (expected.compile_error.len == 0 and expected.runtime_error.len == 0) {
         // check runtime output
-        try std.testing.expectEqualStrings(expected.output, out_buf.items);
+        var expected_lines = std.mem.splitScalar(u8, expected.output, '\n');
+        var out_buf_lines = std.mem.splitScalar(u8, out_buf.items, '\n');
+
+        var expected_line = expected_lines.next();
+        var out_buf_line = out_buf_lines.next();
+        var line: usize = 1;
+
+        while (expected_line != null and out_buf_line != null) : ({
+            expected_line = expected_lines.next();
+            out_buf_line = out_buf_lines.next();
+            line += 1;
+        }) {
+            errdefer std.debug.print("On line {d}\n", .{line});
+            if (!std.mem.eql(u8, "????", expected_line.?)) {
+                try std.testing.expectEqualStrings(expected_line.?, out_buf_line.?);
+            }
+        }
+
+        if (expected_line != null or out_buf_line != null) {
+            return error.differing_number_of_lines;
+        }
     } else {
         // should have errored
         return error.TestUnexpectedResult;
     }
+}
+
+fn run_bench_test(text: []const u8) !void {
+    var vm: VM = undefined;
+    vm.init_in_place(std.testing.allocator);
+    defer vm.deinit();
+
+    var out_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer out_buf.deinit();
+
+    var err_buf = std.ArrayList(u8).init(std.testing.allocator);
+    defer err_buf.deinit();
+
+    var out = out_buf.writer();
+    var err = err_buf.writer();
+    var outs = .{ .out = out, .err = err };
+
+    // just don't crash
+    try vm.interpret(text, std.testing.allocator, outs);
 }
 
 test "./if/fun_in_then.lox" {
@@ -788,49 +827,93 @@ test "./closure/open_closure_in_function.lox" {
     try run_test(@embedFile("./test/closure/open_closure_in_function.lox"));
 }
 
-// test "./benchmark/string_equality.lox" {
-//     try run_test(@embedFile("./test/benchmark/string_equality.lox"));
-// }
+test "./benchmark/string_equality.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/string_equality.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/zoo.lox" {
-//     try run_test(@embedFile("./test/benchmark/zoo.lox"));
-// }
+test "./benchmark/zoo.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/zoo.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/properties.lox" {
-//     try run_test(@embedFile("./test/benchmark/properties.lox"));
-// }
+test "./benchmark/properties.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/properties.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/invocation.lox" {
-//     try run_test(@embedFile("./test/benchmark/invocation.lox"));
-// }
+test "./benchmark/invocation.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/invocation.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/zoo_batch.lox" {
-//     try run_test(@embedFile("./test/benchmark/zoo_batch.lox"));
-// }
+test "./benchmark/zoo_batch.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/zoo_batch.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/fib.lox" {
-//     try run_test(@embedFile("./test/benchmark/fib.lox"));
-// }
+test "./benchmark/fib.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/fib.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/trees.lox" {
-//     try run_test(@embedFile("./test/benchmark/trees.lox"));
-// }
+test "./benchmark/trees.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/trees.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/method_call.lox" {
-//     try run_test(@embedFile("./test/benchmark/method_call.lox"));
-// }
+test "./benchmark/method_call.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/method_call.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/binary_trees.lox" {
-//     try run_test(@embedFile("./test/benchmark/binary_trees.lox"));
-// }
+test "./benchmark/binary_trees.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_bench_test(@embedFile("./test/benchmark/binary_trees.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/equality.lox" {
-//     try run_test(@embedFile("./test/benchmark/equality.lox"));
-// }
+test "./benchmark/equality.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/equality.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
-// test "./benchmark/instantiation.lox" {
-//     try run_test(@embedFile("./test/benchmark/instantiation.lox"));
-// }
+test "./benchmark/instantiation.lox" {
+    if (dbg.options.run_benchmark_tests) {
+        try run_test(@embedFile("./test/benchmark/instantiation.lox"));
+    } else {
+        return error.SkipZigTest;
+    }
+}
 
 test "./call/bool.lox" {
     try run_test(@embedFile("./test/call/bool.lox"));
@@ -1150,6 +1233,10 @@ test "./block/empty.lox" {
 
 test "./block/scope.lox" {
     try run_test(@embedFile("./test/block/scope.lox"));
+}
+
+test "./clock.lox" {
+    try run_test(@embedFile("./test/clock.lox"));
 }
 
 const std = @import("std");

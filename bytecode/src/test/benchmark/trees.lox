@@ -21,9 +21,10 @@ class Tree {
   }
 }
 
-var tree = Tree(8);
+var tree = Tree(5);
 var start = clock();
-for (var i = 0; i < 100; i = i + 1) {
-  if (tree.walk() != 122068) print "Error";
+for (var i = 0; i < 10; i = i + 1) {
+  var value = tree.walk();
+  if (value != 975) print value;
 }
-print clock() - start;
+print clock() - start; // expect: ????

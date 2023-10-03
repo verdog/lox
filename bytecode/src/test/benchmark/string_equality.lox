@@ -211,9 +211,9 @@ while (i < 100000) {
 }
 
 var elapsed = clock() - start;
-print "loop";
-print loopTime;
-print "elapsed";
-print elapsed;
-print "equals";
-print elapsed - loopTime;
+print "loop"; // expect: loop
+print loopTime; // expect: ????
+print "elapsed"; // expect: elapsed
+print elapsed; // expect: ????
+print "equals"; // expect: equals
+print elapsed - loopTime; // expect: ????

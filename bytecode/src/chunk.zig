@@ -80,6 +80,11 @@ pub const Chunk = struct {
             var str = val.buf_print(&buf);
             log.debug("add constant {s}", .{str});
         }
+
+        for (c.constants.items, 0..) |cstnt, i| {
+            if (cstnt.check_eql(val)) return @truncate(i);
+        }
+
         c.constants.append(val) catch @panic("OOM");
         return @intCast(c.constants.items.len - 1);
     }

@@ -1,0 +1,4 @@
+print(clock()); // expect: ????
+print("hello"); // expect: hello
+print(clock()); // expect: ????
+print(clock()); // expect: ????
