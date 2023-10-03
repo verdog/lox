@@ -45,7 +45,7 @@ zig test -Drelease=true ./src/test_benchmark.zig
 
 | Benchmark         | Initial completion of book (57287f5) |
 | ----------------- | ------------------------------------ |
-| `string_equality` | 9,1  seconds                         |
+| `string_equality` | 9.1  seconds                         |
 | `zoo`             | 2.3  seconds                         |
 | `properties`      | 2.7  seconds                         |
 | `invocation`      | 1.8  seconds                         |
