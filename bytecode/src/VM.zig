@@ -9,7 +9,10 @@ pub const Error = error{
 
 const CallFrame = struct {
     closure: *vl.ObjClosure,
-    ip: usize,
+    // we make this a raw pointer so that the VM's main code reading loop doesn't have to
+    // jump down a ladder of pointers to arrive a the code. changing this from a usize to
+    // a raw pointer sped up benchmarks by ~5%!
+    ip: [*]u8,
     // window into vm.stack
     slots: []vl.Value,
 };
@@ -89,9 +92,10 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
 
     while (true) {
         if (dbg.options.trace_execution) {
-            dbg.Disassembler.line(frame.closure.func.chunk, frame.ip, vm.source, usx.err);
+            const ip_offset = @intFromPtr(frame.ip) - @intFromPtr(frame.closure.func.chunk.code.items.ptr);
+            dbg.Disassembler.line(frame.closure.func.chunk, ip_offset, vm.source, usx.err);
             // trace instruction
-            _ = dbg.Disassembler.instruction(frame.closure.func.chunk, frame.ip, vm, usx.err);
+            _ = dbg.Disassembler.instruction(frame.closure.func.chunk, ip_offset, vm, usx.err);
         }
         const inst = @as(OpCode, @enumFromInt(vm.read_byte()));
 
@@ -241,7 +245,9 @@ fn run(vm: *VM, alctr: std.mem.Allocator, outs: anytype) !void {
             },
             .jump_if_false => {
                 const offset = vm.read_short();
-                if (!vm.stack_peek(0).is_truthy()) frame.ip += offset;
+                if (!vm.stack_peek(0).is_truthy()) {
+                    frame.ip += offset;
+                }
             },
             .loop => {
                 const offset = vm.read_short();
@@ -476,7 +482,7 @@ fn call(vm: *VM, callee: *ObjClosure, arg_count: u32, outs: anytype) bool {
     frame.* = undefined;
 
     frame.closure = callee;
-    frame.ip = 0;
+    frame.ip = frame.closure.func.chunk.code.items.ptr;
     frame.slots = vm.stack[vm.stack_top - arg_count - 1 ..];
 
     return true;
@@ -530,15 +536,15 @@ fn bind_method(vm: *VM, class: *ObjClass, name: *ObjString, outs: anytype) bool 
 // TODO consider combining these read_ functions into single ones that take a type param
 fn read_byte(vm: *VM) u8 {
     var frame = &vm.frames[vm.frames_count - 1];
-    const b = frame.closure.func.chunk.code.items[frame.ip];
+    const b = frame.ip[0];
     frame.ip += 1;
     return b;
 }
 
 fn read_short(vm: *VM) u16 {
     var frame = &vm.frames[vm.frames_count - 1];
-    const hi: u16 = frame.closure.func.chunk.code.items[frame.ip];
-    const lo = frame.closure.func.chunk.code.items[frame.ip + 1];
+    const hi: u16 = frame.ip[0];
+    const lo = frame.ip[1];
     frame.ip += 2;
     return (hi << 8) | lo;
 }
@@ -598,7 +604,8 @@ fn print_runtime_error(vm: *VM, out: anytype, comptime fmt: []const u8, vars: an
         while (i >= 0) : (i -= 1) {
             const frame = &vm.frames[i];
             const func = frame.closure.func;
-            const instruction = frame.ip - 1;
+            const ip_offset = @intFromPtr(frame.ip) - @intFromPtr(frame.closure.func.chunk.code.items.ptr);
+            const instruction = ip_offset - 1;
             const line = frame.closure.func.chunk.lines.items[instruction];
 
             out.print("[line {d}] in ", .{line}) catch unreachable;
