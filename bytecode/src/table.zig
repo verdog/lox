@@ -83,7 +83,11 @@ pub const Table = struct {
         // either take the hash as an argument or return it somehow.
         const hsh = hash(string);
 
-        var index: u32 = hsh % @as(u32, @truncate(t.entries.len));
+        // assume power of two in order to optimize modulo with bitwise and
+        std.debug.assert(@popCount(t.entries.len) == 1);
+        const mask = @as(u32, @truncate(t.entries.len - 1));
+        var index: u32 = hsh & mask;
+
         while (true) {
             const potential_entry = &t.entries[index];
             if (potential_entry.key == null) {
@@ -94,7 +98,7 @@ pub const Table = struct {
                 return vl.Value{ .obj = &potential_entry.key.?.obj };
             }
 
-            index = (index + 1) % @as(u32, @truncate(t.entries.len));
+            index = (index + 1) & mask;
         }
     }
 
@@ -120,7 +124,11 @@ pub const Table = struct {
     fn find_entry(t: *Table, entries: []Entry, key: *vl.ObjString) struct { is_new: bool, entry: *Entry } {
         _ = t;
 
-        var index: u32 = key.hash % @as(u32, @truncate(entries.len));
+        // assume power of two in order to optimize modulo with bitwise and
+        std.debug.assert(@popCount(entries.len) == 1);
+        const mask = @as(u32, @truncate(entries.len - 1));
+
+        var index: u32 = key.hash & mask;
         var first_tombstone: ?*Entry = null;
         while (true) {
             const potential_entry = &entries[index];
@@ -137,7 +145,7 @@ pub const Table = struct {
                 }
             }
 
-            index = (index + 1) % @as(u32, @truncate(entries.len));
+            index = (index + 1) & mask;
         }
     }
 
