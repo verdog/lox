@@ -32,51 +32,54 @@ fn run_bench_test(text: []const u8, comptime runs: usize) !void {
     std.debug.print("\ntimes: {any}\nmedian: {d} milliseconds\n\n", .{ times, times[runs / 2] });
 }
 
+// set this to the number of times to run each test. the harness will output the median time.
+const num_runs = 5;
+
 test "./benchmark/string_equality.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/string_equality.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/string_equality.lox"), num_runs);
 }
 
 test "./benchmark/zoo.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/zoo.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/zoo.lox"), num_runs);
 }
 
 test "./benchmark/properties.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/properties.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/properties.lox"), num_runs);
 }
 
 test "./benchmark/invocation.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/invocation.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/invocation.lox"), num_runs);
 }
 
 // zoo_batch is different: it gives itself ten seconds and measures how many operations it
 // can do in that time. this doesn't fit our other benchmarks where a lower time is
 // better, so I'm disabling it (for now?)
 // test "./benchmark/zoo_batch.lox" {
-//     try run_bench_test(@embedFile("./test/benchmark/zoo_batch.lox"));
+//     try run_bench_test(@embedFile("./test/benchmark/zoo_batch.lox"), num_runs);
 // }
 
 test "./benchmark/fib.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/fib.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/fib.lox"), num_runs);
 }
 
 test "./benchmark/trees.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/trees.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/trees.lox"), num_runs);
 }
 
 test "./benchmark/method_call.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/method_call.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/method_call.lox"), num_runs);
 }
 
 test "./benchmark/binary_trees.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/binary_trees.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/binary_trees.lox"), num_runs);
 }
 
 test "./benchmark/equality.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/equality.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/equality.lox"), num_runs);
 }
 
 test "./benchmark/instantiation.lox" {
-    try run_bench_test(@embedFile("./test/benchmark/instantiation.lox"), 1);
+    try run_bench_test(@embedFile("./test/benchmark/instantiation.lox"), num_runs);
 }
 
 const std = @import("std");
