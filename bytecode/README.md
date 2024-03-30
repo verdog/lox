@@ -23,7 +23,7 @@ Run tests (Runs most scripts in ./src/test):
 
 ```
 zig build test # silent output
-zig test ./src/main.zig test # slightly fancier output
+zig test ./src/main.zig # slightly fancier output
 ```
 
 ## Benchmark Tests

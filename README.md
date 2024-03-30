@@ -2,7 +2,7 @@
 
 Implementations of the lox language from [Crafting Interpreters](https://craftinginterpreters.com/)
 
-`treewalk/` is the treewalk interpreter implementation
+`treewalk/` is the treewalk interpreter implementation, and
 `bytecode/` is the bytecode interpreter implementation
 
 Both are written in zig 0.11.0.
